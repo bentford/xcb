@@ -1,5 +1,7 @@
 # xcb
 
+[![Tests](https://github.com/bentford/xcb/actions/workflows/test.yml/badge.svg)](https://github.com/bentford/xcb/actions/workflows/test.yml)
+
 A command-line tool that brings Xcode build, test, and run workflows to the terminal. Quickly switch between schemes, run tests with coverage reports, and launch apps on simulators — without leaving your shell.
 
 Born out of frustration with a large Xcode project containing hundreds of schemes, where constantly switching between builds, tests, and simulators in the IDE was painfully slow. `xcb` makes it easy to repeat commands, jump between schemes, and get fast feedback from the command line.
