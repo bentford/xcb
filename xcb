@@ -1,0 +1,1460 @@
+#!/bin/bash
+
+set -uo pipefail
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Default values (set via 'select' commands or CLI flags; saved in .xcbrc)
+WORKSPACE=""
+IPHONE_NAME=""
+OS_VERSION=""
+SCHEME=""
+ACTION=""
+SUB_ACTION=""
+SKIP_BUILD=false
+DETAILED=false
+ONLY_TEST=""
+FORCE=false
+FILTER=""
+DRY_RUN=false
+CLEAN=false
+
+# Load saved defaults from .xcbrc
+XCB_CONFIG=".xcbrc"
+if [[ -f "$XCB_CONFIG" ]]; then
+    source "$XCB_CONFIG"
+fi
+
+usage() {
+    echo "Usage: $0 <action> [sub-action] -s <scheme> [options...]"
+    echo ""
+    echo "Actions:"
+    echo "  select workspace       Pick default Xcode workspace"
+    echo "  select scheme          Pick default scheme from workspace"
+    echo "  select iphone          Pick default iPhone simulator"
+    echo ""
+    echo "  clean                  Clean derived data for scheme"
+    echo "  build                  Build only"
+    echo "  build run              Build and run app in simulator"
+    echo "  run                    Run last built app in simulator (no build)"
+    echo ""
+    echo "  test                   Build and run tests"
+    echo "  test coverage          Build and run tests with code coverage report"
+    echo "  test errors            Show errors/failures from last test build"
+    echo ""
+    echo "  purge                  Remove build artifacts from this script"
+    echo ""
+    echo "Options:"
+    echo "  -s, --scheme <name>    Xcode scheme (${SCHEME:-not set, use 'select scheme'})"
+    echo "  -w, --workspace <path> Xcode workspace (${WORKSPACE:-not set, use 'select workspace'})"
+    echo "  -i, --iphone <name>    iPhone simulator name (${IPHONE_NAME:-not set, use 'select iphone'})"
+    echo "  -o, --os-version <ver> iOS version (${OS_VERSION:-not set, use 'select iphone'})"
+    echo "  --only <test>          Run specific test(s) (test actions only)"
+    echo "                         Format: TestTarget/TestClass[/testMethod]"
+    echo "  --skip-build           Skip build, use results from last run (test coverage)"
+    echo "  --detailed             File-level coverage breakdown (test coverage)"
+    echo "  --clean                Clean before building (build actions only)"
+    echo "  --filter <text>        Filter schemes by text (select scheme only)"
+    echo "  --dry-run              Show the command without running it"
+    echo "  --force                Skip confirmation (purge only)"
+    echo "  -h, --help             Show this help"
+    echo ""
+    echo "Examples:"
+    echo "  $0 select workspace            Pick a default workspace"
+    echo "  $0 select scheme              Pick a default scheme"
+    echo "  $0 select iphone              Pick a default simulator"
+    echo "  $0 test -s MyScheme"
+    echo "  $0 test -s MyScheme --only MyTests/MyTestClass"
+    echo "  $0 test coverage -s MyScheme --detailed"
+    echo "  $0 test coverage --skip-build -s MyScheme"
+    echo "  $0 build -s MyApp"
+    echo "  $0 build run -s MyApp"
+    echo "  $0 run -s MyApp"
+    echo "  $0 purge --force"
+    exit 1
+}
+
+# Function: Find most recent xcresult in /tmp, current directory, or DerivedData
+find_most_recent_xcresult() {
+    local filter_name="${1:-}"
+    local derived_data="$HOME/Library/Developer/Xcode/DerivedData"
+    local best_match=""
+    local best_time=0
+
+    # Helper: update best match if xcresult passes filter and is newer
+    check_xcresult() {
+        local xcresult="$1"
+        local mod_time
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            mod_time=$(stat -f %m "$xcresult" 2>/dev/null || echo 0)
+        else
+            mod_time=$(stat -c %Y "$xcresult" 2>/dev/null || echo 0)
+        fi
+
+        if [[ -n "$filter_name" ]]; then
+            local xcresult_name
+            xcresult_name=$(basename "$xcresult")
+            if [[ "$xcresult_name" != *"$filter_name"* ]]; then
+                return
+            fi
+        fi
+
+        if [[ $mod_time -gt $best_time ]]; then
+            best_match="$xcresult"
+            best_time=$mod_time
+        fi
+    }
+
+    # Search /tmp first (where test/coverage actions now write results)
+    while IFS= read -r xcresult; do
+        check_xcresult "$xcresult"
+    done < <(find -L /tmp -maxdepth 1 -name "*.xcresult" -type d 2>/dev/null)
+
+    # Search current directory
+    while IFS= read -r xcresult; do
+        check_xcresult "$xcresult"
+    done < <(find . -maxdepth 1 -name "*.xcresult" -type d 2>/dev/null)
+
+    # Fall back to DerivedData if nothing found yet
+    if [[ -z "$best_match" && -d "$derived_data" ]]; then
+        while IFS= read -r xcresult; do
+            check_xcresult "$xcresult"
+        done < <(find "$derived_data" -name "*.xcresult" -type d 2>/dev/null | head -n 50)
+    fi
+
+    echo "$best_match"
+}
+
+# Function: Extract coverage data using xccov
+extract_coverage() {
+    local xcresult_path="$1"
+
+    if ! xcrun --find xccov &> /dev/null; then
+        echo -e "${RED}✗ xccov command not found${NC}" >&2
+        echo -e "${YELLOW}Make sure Xcode is installed (xccov requires full Xcode, not just Command Line Tools).${NC}" >&2
+        return 1
+    fi
+
+    xcrun xccov view --report --json "$xcresult_path" 2>/dev/null
+}
+
+# Function: Show test failures and build errors from xcresult
+show_errors() {
+    local xcresult_path="$1"
+    local db_path="$xcresult_path/database.sqlite3"
+
+    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}❌ FAILURE DETAILS${NC}"
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+
+    local found_errors=false
+
+    # Xcode 16+ uses SQLite database
+    if [[ -f "$db_path" ]]; then
+        # Query build errors (severity 0 = error)
+        local build_errors
+        build_errors=$(sqlite3 "$db_path" "
+            SELECT b.message, b.issueType, d.url, b.producingTarget
+            FROM BuildIssues b
+            LEFT JOIN DocumentLocations d ON b.documentLocation_fk = d.rowid
+            WHERE b.severity = 0
+            ORDER BY b.orderInAction;" 2>/dev/null)
+
+        if [[ -n "$build_errors" ]]; then
+            echo -e "${RED}Build Errors:${NC}"
+            echo "$build_errors" | while IFS='|' read -r message issue_type url target; do
+                if [[ -n "$message" ]]; then
+                    local file_path=$(echo "$url" | sed 's|file://||' | cut -d'#' -f1)
+                    local filename=$(basename "$file_path" 2>/dev/null)
+                    local line_num=$(echo "$url" | grep -oE 'StartingLineNumber=[0-9]+' | cut -d'=' -f2)
+                    local col_num=$(echo "$url" | grep -oE 'StartingColumnNumber=[0-9]+' | cut -d'=' -f2)
+
+                    if [[ -n "$filename" && "$filename" != "" ]]; then
+                        if [[ -n "$line_num" ]]; then
+                            echo -e "  ${RED}✗${NC} ${BOLD}${filename}:${line_num}:${col_num:-1}${NC}"
+                        else
+                            echo -e "  ${RED}✗${NC} ${BOLD}${filename}${NC}"
+                        fi
+                        echo -e "    ${message}"
+                        if [[ -n "$target" ]]; then
+                            echo -e "    ${YELLOW}Target:${NC} $target"
+                        fi
+                        echo -e "    ${CYAN}→${NC} $file_path"
+                    else
+                        echo -e "  ${RED}✗${NC} ${message}"
+                    fi
+                    echo ""
+                fi
+            done
+            found_errors=true
+        fi
+
+        # Query test failures from TestIssues table
+        local test_failures
+        test_failures=$(sqlite3 "$db_path" "
+            SELECT ti.message, tc.name, d.url
+            FROM TestIssues ti
+            LEFT JOIN TestCaseRuns tcr ON ti.testCaseRun_fk = tcr.rowid
+            LEFT JOIN TestCases tc ON tcr.testCase_fk = tc.rowid
+            LEFT JOIN DocumentLocations d ON ti.documentLocation_fk = d.rowid
+            WHERE ti.issueType = 'Failure'
+            LIMIT 20;" 2>/dev/null)
+
+        if [[ -n "$test_failures" ]]; then
+            echo -e "${RED}Test Failures:${NC}"
+            echo "$test_failures" | while IFS='|' read -r message test_name url; do
+                if [[ -n "$test_name" ]]; then
+                    echo -e "  ${RED}✗${NC} ${BOLD}${test_name}${NC}"
+                    echo -e "    ${message}"
+                    if [[ -n "$url" ]]; then
+                        local file_path=$(echo "$url" | sed 's|file://||' | cut -d'#' -f1)
+                        local line_num=$(echo "$url" | grep -oE 'StartingLineNumber=[0-9]+' | cut -d'=' -f2)
+                        echo -e "    ${CYAN}→${NC} ${file_path}:${line_num:-}"
+                    fi
+                    echo ""
+                fi
+            done
+            found_errors=true
+        fi
+
+        # Show warning count
+        local warning_count
+        warning_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM BuildIssues WHERE severity = 2 AND issueType = 'Warning';" 2>/dev/null)
+        if [[ -n "$warning_count" && "$warning_count" != "0" ]]; then
+            echo -e "${YELLOW}⚠ $warning_count warning(s)${NC}"
+        fi
+
+        if [[ "$found_errors" == true ]]; then
+            echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            return
+        fi
+    fi
+
+    # Fallback: Try Xcode 16+ xcresulttool test-results
+    if ! command -v jq &> /dev/null; then
+        echo -e "${YELLOW}⚠ jq not installed. Install for detailed error output.${NC}"
+        echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        return
+    fi
+
+    local tests_json
+    tests_json=$(xcrun xcresulttool get test-results tests --path "$xcresult_path" 2>/dev/null)
+
+    if [[ -n "$tests_json" ]]; then
+        local failures
+        failures=$(echo "$tests_json" | jq -r '
+            [.. | objects | select(.result == "Failed" and .nodeType == "Test Case")] | .[] |
+            .nodeIdentifier as $test |
+            (.children // [] | map(select(.nodeType == "Failure Message")) | .[0].name // "No message") as $msg |
+            "\($test)|\($msg)"
+        ' 2>/dev/null)
+
+        if [[ -n "$failures" ]]; then
+            echo -e "${RED}Failed Tests:${NC}"
+            echo "$failures" | while IFS='|' read -r test_name message; do
+                if [[ -n "$test_name" ]]; then
+                    echo -e "  ${RED}✗${NC} $test_name"
+                    echo -e "    $message"
+                    echo ""
+                fi
+            done
+            found_errors=true
+        fi
+    fi
+
+    # Fallback: Try legacy format (Xcode 15 and earlier)
+    if [[ "$found_errors" == false ]]; then
+        local result_json
+        result_json=$(xcrun xcresulttool get object --legacy --path "$xcresult_path" --format json 2>/dev/null)
+
+        if [[ -n "$result_json" ]]; then
+            local test_failures
+            test_failures=$(echo "$result_json" | jq -r '
+                .issues.testFailureSummaries._values // [] | .[] |
+                "  \(.testCaseName._value // "Unknown test"):",
+                "    \(.message._value // "No message")",
+                ""
+            ' 2>/dev/null)
+
+            if [[ -n "$test_failures" && "$test_failures" != "" ]]; then
+                echo -e "${RED}Test Failures:${NC}"
+                echo "$test_failures"
+                found_errors=true
+            fi
+
+            local error_summaries
+            error_summaries=$(echo "$result_json" | jq -r '
+                .issues.errorSummaries._values // [] | .[] |
+                "  \(.issueType._value // "Error"):",
+                "    \(.message._value // "No message")",
+                ""
+            ' 2>/dev/null)
+
+            if [[ -n "$error_summaries" && "$error_summaries" != "" ]]; then
+                echo -e "${RED}Build Errors:${NC}"
+                echo "$error_summaries"
+                found_errors=true
+            fi
+        fi
+    fi
+
+    if [[ "$found_errors" == false ]]; then
+        echo -e "${YELLOW}No detailed error information extracted.${NC}"
+        echo -e "${YELLOW}Open in Xcode for full details: open $xcresult_path${NC}"
+    fi
+
+    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Function: Format coverage summary
+format_summary() {
+    local json_data="$1"
+    local xcresult_path="$2"
+    local filter_scheme="$3"
+
+    if ! command -v jq &> /dev/null; then
+        echo -e "${YELLOW}⚠ jq not installed. Install with: brew install jq${NC}"
+        echo "$json_data"
+        return
+    fi
+
+    local targets
+    if [[ -n "$filter_scheme" ]]; then
+        # Filter targets that contain the scheme name
+        targets=$(echo "$json_data" | jq -r --arg scheme "$filter_scheme" '.targets[] | select(.name | contains($scheme)) | .name')
+    else
+        targets=$(echo "$json_data" | jq -r '.targets[] | .name')
+    fi
+
+    if [[ -z "$targets" ]]; then
+        echo -e "${YELLOW}⚠ No targets found matching '$filter_scheme'${NC}"
+        echo -e "${YELLOW}Showing all targets instead:${NC}"
+        targets=$(echo "$json_data" | jq -r '.targets[] | .name')
+    fi
+
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}📊 CODE COVERAGE REPORT${NC}"
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+
+    echo -e "${CYAN}📦 xcresult:${NC} $(basename "$xcresult_path")"
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        mod_date=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$xcresult_path" 2>/dev/null)
+        echo -e "${CYAN}📅 Modified:${NC} $mod_date"
+    fi
+    echo ""
+
+    while IFS= read -r target; do
+        local coverage
+        coverage=$(echo "$json_data" | jq -r ".targets[] | select(.name == \"$target\") | .lineCoverage")
+
+        local covered_lines
+        covered_lines=$(echo "$json_data" | jq -r ".targets[] | select(.name == \"$target\") | .coveredLines")
+
+        local executable_lines
+        executable_lines=$(echo "$json_data" | jq -r ".targets[] | select(.name == \"$target\") | .executableLines")
+
+        local files_count
+        files_count=$(echo "$json_data" | jq -r ".targets[] | select(.name == \"$target\") | .files | length")
+
+        local coverage_percent
+        coverage_percent=$(echo "$coverage * 100" | bc -l | xargs printf "%.4f")
+
+        local color="$GREEN"
+        if (( $(echo "$coverage < 0.8" | bc -l) )); then
+            color="$YELLOW"
+        fi
+        if (( $(echo "$coverage < 0.6" | bc -l) )); then
+            color="$RED"
+        fi
+
+        echo -e "${BOLD}Target:${NC} $target"
+        echo -e "  ${BOLD}Line Coverage:${NC}    ${color}${coverage_percent}%${NC}"
+        echo -e "  ${BOLD}Covered Lines:${NC}    $covered_lines / $executable_lines"
+        echo -e "  ${BOLD}Files:${NC}            $files_count"
+        echo ""
+    done <<< "$targets"
+
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Function: Format detailed output with file-level breakdown
+format_detailed() {
+    local json_data="$1"
+    local filter_scheme="$2"
+
+    if ! command -v jq &> /dev/null; then
+        echo -e "${YELLOW}⚠ Detailed output requires jq. Please install: brew install jq${NC}"
+        return 1
+    fi
+
+    echo -e "\n${BOLD}📁 File-Level Coverage:${NC}\n"
+
+    local files
+    if [[ -n "$filter_scheme" ]]; then
+        files=$(echo "$json_data" | jq -r --arg scheme "$filter_scheme" '.targets[] | select(.name | contains($scheme)) | .files[] | "\(.lineCoverage)|\(.name)|\(.coveredLines)|\(.executableLines)"' | sort -t'|' -k1 -rn)
+    else
+        files=$(echo "$json_data" | jq -r '.targets[].files[] | "\(.lineCoverage)|\(.name)|\(.coveredLines)|\(.executableLines)"' | sort -t'|' -k1 -rn)
+    fi
+
+    echo -e "${BOLD}Top 10 Files (Best Coverage):${NC}"
+    echo "$files" | head -10 | while IFS='|' read -r coverage name covered executable; do
+        coverage_percent=$(echo "$coverage * 100" | bc -l | xargs printf "%.4f")
+        filename=$(basename "$name")
+        echo -e "  ${GREEN}✓${NC} ${filename}"
+        echo -e "    ${coverage_percent}%  (${covered}/${executable} lines)"
+    done
+
+    echo -e "\n${BOLD}Bottom 10 Files (Need Attention):${NC}"
+    echo "$files" | tail -10 | tac | while IFS='|' read -r coverage name covered executable; do
+        coverage_percent=$(echo "$coverage * 100" | bc -l | xargs printf "%.4f")
+        filename=$(basename "$name")
+
+        local color="$YELLOW"
+        if (( $(echo "$coverage < 0.3" | bc -l) )); then
+            color="$RED"
+        fi
+
+        echo -e "  ${color}⚠${NC} ${filename}"
+        echo -e "    ${coverage_percent}%  (${covered}/${executable} lines)"
+    done
+
+    echo ""
+}
+
+# Parse positional arguments (action and sub-action)
+if [[ $# -gt 0 && "$1" != -* ]]; then
+    case "$1" in
+        build|test|run|clean|purge|select)
+            ACTION="$1"; shift
+            if [[ $# -gt 0 && "$1" != -* ]]; then
+                case "$ACTION" in
+                    test)
+                        if [[ "$1" == "coverage" || "$1" == "errors" ]]; then
+                            SUB_ACTION="$1"; shift
+                        else
+                            echo "Error: Unknown test sub-action '$1'"; usage
+                        fi
+                        ;;
+                    build)
+                        if [[ "$1" == "run" ]]; then
+                            SUB_ACTION="$1"; shift
+                        else
+                            echo "Error: Unknown build sub-action '$1'"; usage
+                        fi
+                        ;;
+                    select)
+                        if [[ "$1" == "workspace" || "$1" == "scheme" || "$1" == "iphone" ]]; then
+                            SUB_ACTION="$1"; shift
+                        else
+                            echo "Error: Unknown select sub-action '$1'"; usage
+                        fi
+                        ;;
+                    run|clean|purge)
+                        echo "Error: '$ACTION' does not take a sub-action"; usage
+                        ;;
+                esac
+            fi
+            ;;
+    esac
+fi
+[[ -z "$ACTION" ]] && usage
+
+# Parse flags
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -s|--scheme)
+            SCHEME="$2"
+            shift 2
+            ;;
+        -w|--workspace)
+            WORKSPACE="$2"
+            shift 2
+            ;;
+        -i|--iphone)
+            IPHONE_NAME="$2"
+            shift 2
+            ;;
+        -o|--os-version)
+            OS_VERSION="$2"
+            shift 2
+            ;;
+        --detailed)
+            DETAILED=true
+            shift
+            ;;
+        --force)
+            FORCE=true
+            shift
+            ;;
+        --filter)
+            FILTER="$2"
+            shift 2
+            ;;
+        --clean)
+            CLEAN=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --skip-build)
+            SKIP_BUILD=true
+            shift
+            ;;
+        --only)
+            ONLY_TEST="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "Unknown option: $1"
+            usage
+            ;;
+    esac
+done
+
+# Map action + sub-action to internal action name
+case "$ACTION" in
+    build) [[ "$SUB_ACTION" == "run" ]] && ACTION="build-run" ;;
+    test)
+        case "$SUB_ACTION" in
+            coverage)
+                if [[ "$SKIP_BUILD" == true ]]; then
+                    ACTION="report"
+                else
+                    ACTION="coverage"
+                fi
+                ;;
+            errors) ACTION="errors" ;;
+            "") ;; # stays "test"
+            *)  echo "Error: Unknown test sub-action '$SUB_ACTION'"; usage ;;
+        esac
+        ;;
+    select)
+        if [[ -z "$SUB_ACTION" ]]; then
+            echo "Error: 'select' requires a sub-action (scheme or iphone)"; usage
+        fi
+        ;;
+    clean|run|purge) ;;
+    *) echo "Error: Unknown action '$ACTION'"; usage ;;
+esac
+
+# Select action - pick default workspace, scheme, or iPhone simulator
+if [[ "$ACTION" == "select" ]]; then
+    if [[ "$SUB_ACTION" == "workspace" ]]; then
+        workspaces=$(find . -maxdepth 1 -name "*.xcworkspace" -type d 2>/dev/null | sed 's|^\./||' | sort)
+
+        if [[ -z "$workspaces" ]]; then
+            echo -e "${RED}Error: No .xcworkspace found in current directory${NC}"
+            exit 1
+        fi
+
+        echo ""
+        echo -e "${BOLD}Available workspaces:${NC}"
+        i=1
+        while IFS= read -r ws; do
+            if [[ "$ws" == "$WORKSPACE" ]]; then
+                echo -e "  ${GREEN}$i) $ws (current)${NC}"
+            else
+                echo "  $i) $ws"
+            fi
+            (( i++ ))
+        done <<< "$workspaces"
+
+        echo ""
+        total=$(echo "$workspaces" | wc -l | tr -d ' ')
+        printf "${CYAN}Pick a workspace [1-$total]:${NC} "
+        read -r choice
+
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+            echo -e "${RED}Invalid selection${NC}"
+            exit 1
+        fi
+
+        selected=$(echo "$workspaces" | sed -n "${choice}p")
+
+        # Write or update WORKSPACE in config file
+        if [[ -f "$XCB_CONFIG" ]] && grep -q '^WORKSPACE=' "$XCB_CONFIG"; then
+            sed -i '' "s|^WORKSPACE=.*|WORKSPACE=\"$selected\"|" "$XCB_CONFIG"
+        else
+            echo "WORKSPACE=\"$selected\"" >> "$XCB_CONFIG"
+        fi
+
+        echo -e "${GREEN}Default workspace set to: ${BOLD}$selected${NC}"
+
+    elif [[ "$SUB_ACTION" == "scheme" ]]; then
+        if [[ -z "$WORKSPACE" ]]; then
+            echo -e "${RED}Error: Workspace is not set${NC}"
+            echo -e "${YELLOW}Tip: Run '$0 select workspace' first${NC}"
+            exit 1
+        fi
+        echo -e "${BLUE}Fetching schemes from $WORKSPACE (resolving packages)...${NC}"
+        schemes=$(xcodebuild -workspace "$WORKSPACE" -list 2>/dev/null | sed -n '/Schemes:/,/^$/p' | tail -n +2 | sed '/^$/d' | sed 's/^[[:space:]]*//')
+
+        if [[ -n "$FILTER" ]]; then
+            schemes=$(echo "$schemes" | grep -i "$FILTER")
+            if [[ -z "$schemes" ]]; then
+                echo -e "${RED}Error: No schemes matching '$FILTER' found in $WORKSPACE${NC}"
+                exit 1
+            fi
+            echo -e "${CYAN}Filtered by:${NC} $FILTER"
+        elif [[ -z "$schemes" ]]; then
+            echo -e "${RED}Error: No schemes found in $WORKSPACE${NC}"
+            exit 1
+        fi
+
+        echo ""
+        echo -e "${BOLD}Available schemes:${NC}"
+        i=1
+        while IFS= read -r scheme; do
+            if [[ "$scheme" == "${SCHEME:-}" ]]; then
+                echo -e "  ${GREEN}$i) $scheme (current)${NC}"
+            else
+                echo "  $i) $scheme"
+            fi
+            (( i++ ))
+        done <<< "$schemes"
+
+        echo ""
+        total=$(echo "$schemes" | wc -l | tr -d ' ')
+        printf "${CYAN}Pick a scheme [1-$total]:${NC} "
+        read -r choice
+
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+            echo -e "${RED}Invalid selection${NC}"
+            exit 1
+        fi
+
+        selected=$(echo "$schemes" | sed -n "${choice}p")
+
+        # Write or update SCHEME in config file
+        if [[ -f "$XCB_CONFIG" ]] && grep -q '^SCHEME=' "$XCB_CONFIG"; then
+            sed -i '' "s/^SCHEME=.*/SCHEME=\"$selected\"/" "$XCB_CONFIG"
+        else
+            echo "SCHEME=\"$selected\"" >> "$XCB_CONFIG"
+        fi
+
+        echo -e "${GREEN}Default scheme set to: ${BOLD}$selected${NC}"
+
+    elif [[ "$SUB_ACTION" == "iphone" ]]; then
+        echo -e "${BLUE}Fetching available iPhone simulators...${NC}"
+
+        # Parse simctl output to get device name + OS version pairs
+        # Section headers look like: "-- iOS 26.2 --"
+        # Device lines look like:   "    iPhone 17 (UUID) (Booted)"
+        simulators=()
+        current_os=""
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^--\ iOS\ (.+)\ --$ ]]; then
+                current_os="${BASH_REMATCH[1]}"
+            elif [[ "$line" =~ ^[[:space:]]+iPhone ]]; then
+                name=$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/ ([A-F0-9-]*)//' | sed 's/ (Booted)//' | sed 's/ (Shutdown)//' | sed 's/[[:space:]]*$//')
+                simulators+=("${name}|${current_os}")
+            fi
+        done < <(xcrun simctl list devices available)
+
+        if [[ ${#simulators[@]} -eq 0 ]]; then
+            echo -e "${RED}Error: No iPhone simulators found${NC}"
+            exit 1
+        fi
+
+        echo ""
+        echo -e "${BOLD}Available iPhone simulators:${NC}"
+        i=1
+        for entry in "${simulators[@]}"; do
+            sim_name="${entry%%|*}"
+            sim_os="${entry##*|}"
+            current_marker=""
+            if [[ "$sim_name" == "${IPHONE_NAME:-}" && "$sim_os" == "${OS_VERSION:-}" ]]; then
+                current_marker=" ${GREEN}(current)${NC}"
+            fi
+            echo -e "  $i) ${sim_name} (iOS ${sim_os})${current_marker}"
+            (( i++ ))
+        done
+
+        echo ""
+        total=${#simulators[@]}
+        printf "${CYAN}Pick a simulator [1-$total]:${NC} "
+        read -r choice
+
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || [[ "$choice" -lt 1 || "$choice" -gt "$total" ]]; then
+            echo -e "${RED}Invalid selection${NC}"
+            exit 1
+        fi
+
+        selected="${simulators[$((choice - 1))]}"
+        selected_name="${selected%%|*}"
+        selected_os="${selected##*|}"
+
+        # Write or update IPHONE_NAME in config file
+        if [[ -f "$XCB_CONFIG" ]] && grep -q '^IPHONE_NAME=' "$XCB_CONFIG"; then
+            sed -i '' "s/^IPHONE_NAME=.*/IPHONE_NAME=\"$selected_name\"/" "$XCB_CONFIG"
+        else
+            echo "IPHONE_NAME=\"$selected_name\"" >> "$XCB_CONFIG"
+        fi
+
+        # Write or update OS_VERSION in config file
+        if [[ -f "$XCB_CONFIG" ]] && grep -q '^OS_VERSION=' "$XCB_CONFIG"; then
+            sed -i '' "s/^OS_VERSION=.*/OS_VERSION=\"$selected_os\"/" "$XCB_CONFIG"
+        else
+            echo "OS_VERSION=\"$selected_os\"" >> "$XCB_CONFIG"
+        fi
+
+        echo -e "${GREEN}Default simulator set to: ${BOLD}$selected_name${NC} ${GREEN}(iOS $selected_os)${NC}"
+    fi
+
+    exit 0
+fi
+
+# Purge action - remove xcresult bundles from /tmp
+if [[ "$ACTION" == "purge" ]]; then
+    result_list=$(find -L /tmp -maxdepth 1 -name "*.xcresult" -type d 2>/dev/null | sort)
+
+    if [[ -z "$result_list" ]]; then
+        echo -e "${GREEN}✓ No .xcresult bundles found in /tmp${NC}"
+        exit 0
+    fi
+
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}🗑  PURGE .xcresult bundles from /tmp${NC}"
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+
+    count=0
+    while IFS= read -r result; do
+        size=$(du -sh "$result" 2>/dev/null | awk '{print $1}')
+        echo -e "  ${YELLOW}→${NC} $(basename "$result")  ${CYAN}(${size})${NC}"
+        (( count++ ))
+    done <<< "$result_list"
+
+    echo ""
+    echo -e "  Found ${BOLD}${count}${NC} bundle(s)"
+    echo ""
+
+    if [[ "$FORCE" == false ]]; then
+        printf "${YELLOW}Remove all of the above? [y/N]${NC} "
+        read -r confirm
+        if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+            echo -e "${YELLOW}Cancelled.${NC}"
+            exit 0
+        fi
+    fi
+
+    removed=0
+    while IFS= read -r result; do
+        if rm -rf "$result"; then
+            (( removed++ ))
+        else
+            echo -e "${RED}✗ Failed to remove: $result${NC}"
+        fi
+    done <<< "$result_list"
+
+    echo -e "${GREEN}✅ Removed $removed bundle(s) from /tmp${NC}"
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    exit 0
+fi
+
+# Warn if --only is used with non-test actions
+if [[ -n "$ONLY_TEST" && "$ACTION" != "test" && "$ACTION" != "coverage" ]]; then
+    echo -e "${YELLOW}⚠ --only is ignored in $ACTION action${NC}"
+    ONLY_TEST=""
+fi
+
+if [[ "$ACTION" == "report" || "$ACTION" == "errors" ]]; then
+    echo -e "${BLUE}🔍 Searching for most recent .xcresult...${NC}"
+    XCRESULT_PATH=$(find_most_recent_xcresult "${SCHEME:-}")
+    if [[ -z "$XCRESULT_PATH" ]]; then
+        echo -e "${RED}Error: No .xcresult found in current directory or DerivedData${NC}"
+        echo -e "${YELLOW}Tip: Run tests with coverage first${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Found: $(basename "$XCRESULT_PATH")${NC}"
+elif [[ -z "${SCHEME:-}" ]]; then
+    echo -e "${RED}Error: Scheme is required${NC}"
+    echo -e "${YELLOW}Tip: Run '$0 select scheme' or pass -s <scheme>${NC}"
+    exit 1
+fi
+
+# Validate required settings for actions that need a simulator
+if [[ -z "$WORKSPACE" ]]; then
+    echo -e "${RED}Error: Workspace is not set${NC}"
+    echo -e "${YELLOW}Tip: Run '$0 select workspace' or pass -w <workspace>${NC}"
+    exit 1
+fi
+if [[ -z "$IPHONE_NAME" ]]; then
+    echo -e "${RED}Error: iPhone simulator is not set${NC}"
+    echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -i <name> -o <version>${NC}"
+    exit 1
+fi
+if [[ -z "$OS_VERSION" ]]; then
+    echo -e "${RED}Error: iOS version is not set${NC}"
+    echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -o <version>${NC}"
+    exit 1
+fi
+
+# Build destination string
+DESTINATION="platform=iOS Simulator,name=${IPHONE_NAME},OS=${OS_VERSION}"
+
+# Report action - just show coverage from existing xcresult
+if [[ "$ACTION" == "report" ]]; then
+    echo "📊 Coverage report for: $(basename "$XCRESULT_PATH")"
+    if [[ -n "${SCHEME:-}" ]]; then
+        echo "   Filter: $SCHEME"
+    fi
+    echo ""
+
+    coverage_json=$(extract_coverage "$XCRESULT_PATH")
+
+    if [[ -n "$coverage_json" ]]; then
+        format_summary "$coverage_json" "$XCRESULT_PATH" "${SCHEME:-}"
+
+        if [[ "$DETAILED" == true ]]; then
+            format_detailed "$coverage_json" "${SCHEME:-}"
+        fi
+    else
+        echo -e "${YELLOW}⚠ No coverage data found in .xcresult${NC}"
+        echo -e "${YELLOW}Make sure tests were run with code coverage enabled.${NC}"
+        exit 1
+    fi
+
+    echo ""
+    echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
+    echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
+    exit 0
+fi
+
+# Errors action - show failures from existing xcresult
+if [[ "$ACTION" == "errors" ]]; then
+    echo "❌ Error report for: $(basename "$XCRESULT_PATH")"
+    show_errors "$XCRESULT_PATH"
+    echo ""
+    echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
+    echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
+    exit 0
+fi
+
+
+# Function: Parse build errors from live xcodebuild output (like xcodebuild.nvim)
+parse_build_output() {
+    local build_log="$1"
+    local found_errors=false
+
+    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}❌ BUILD ERRORS${NC}"
+    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
+
+    # Pattern 1: Swift/Clang compiler errors with file location
+    # Format: /path/to/file.swift:123:45: error: message
+    local compiler_errors
+    compiler_errors=$(grep -E '\.(swift|m|mm|c|cpp|h|hpp):[0-9]+:[0-9]+: error:' "$build_log" 2>/dev/null | head -30)
+
+    if [[ -n "$compiler_errors" ]]; then
+        found_errors=true
+        echo -e "${RED}Compiler Errors:${NC}"
+        echo "$compiler_errors" | while IFS= read -r line; do
+            # Parse: /path/to/file.swift:123:45: error: message
+            local file_path=$(echo "$line" | sed -E 's/:[0-9]+:[0-9]+: error:.*$//')
+            local line_col=$(echo "$line" | grep -oE ':[0-9]+:[0-9]+:' | head -1)
+            local line_num=$(echo "$line_col" | cut -d: -f2)
+            local col_num=$(echo "$line_col" | cut -d: -f3)
+            local message=$(echo "$line" | sed -E 's/^.*:[0-9]+:[0-9]+: error: //')
+            local filename=$(basename "$file_path")
+
+            echo -e "  ${RED}✗${NC} ${BOLD}${filename}:${line_num}:${col_num}${NC}"
+            echo -e "    ${message}"
+            echo -e "    ${CYAN}→${NC} $file_path"
+            echo ""
+        done
+    fi
+
+    # Pattern 2: Generic errors (error: message without file path)
+    local generic_errors
+    generic_errors=$(grep -E '^error: |: error: ' "$build_log" 2>/dev/null | \
+        grep -v '\.swift:[0-9]' | grep -v '\.m:[0-9]' | grep -v '\.c:[0-9]' | \
+        grep -v "BUILD FAILED" | head -10)
+
+    if [[ -n "$generic_errors" ]]; then
+        found_errors=true
+        echo -e "${RED}Build Errors:${NC}"
+        echo "$generic_errors" | while IFS= read -r line; do
+            local message=$(echo "$line" | sed -E 's/^.*error: //')
+            echo -e "  ${RED}✗${NC} ${message}"
+        done
+        echo ""
+    fi
+
+    # Pattern 3: Linker errors
+    local linker_errors
+    linker_errors=$(grep -E '(Undefined symbols for|ld: |clang: error:|Linker command failed)' "$build_log" 2>/dev/null | head -15)
+
+    if [[ -n "$linker_errors" ]]; then
+        found_errors=true
+        echo -e "${RED}Linker Errors:${NC}"
+        echo "$linker_errors" | while IFS= read -r line; do
+            echo -e "  ${RED}✗${NC} $line"
+        done
+        echo ""
+
+        # Show undefined symbol details
+        local undefined_symbols
+        undefined_symbols=$(grep -A 2 "Undefined symbols" "$build_log" 2>/dev/null | grep -E '^\s+"_' | head -10)
+        if [[ -n "$undefined_symbols" ]]; then
+            echo -e "${YELLOW}Missing Symbols:${NC}"
+            echo "$undefined_symbols" | while IFS= read -r line; do
+                local symbol=$(echo "$line" | sed -E 's/^[[:space:]]*"_([^"]+)".*/\1/')
+                echo -e "  ${YELLOW}→${NC} $symbol"
+            done
+            echo ""
+        fi
+    fi
+
+    # Pattern 4: Phase script execution failures
+    local phase_failures
+    phase_failures=$(grep -E 'PhaseScriptExecution.*failed|Run custom shell script.*failed' "$build_log" 2>/dev/null | head -5)
+
+    if [[ -n "$phase_failures" ]]; then
+        found_errors=true
+        echo -e "${RED}Script Phase Failures:${NC}"
+        echo "$phase_failures" | while IFS= read -r line; do
+            echo -e "  ${RED}✗${NC} $line"
+        done
+        echo ""
+    fi
+
+    # Pattern 5: Module/import errors
+    local module_errors
+    module_errors=$(grep -E "(No such module|Could not find module|Missing required module)" "$build_log" 2>/dev/null | head -10)
+
+    if [[ -n "$module_errors" ]]; then
+        found_errors=true
+        echo -e "${RED}Module Errors:${NC}"
+        echo "$module_errors" | while IFS= read -r line; do
+            local message=$(echo "$line" | sed -E 's/^.*error: //')
+            echo -e "  ${RED}✗${NC} ${message}"
+        done
+        echo ""
+    fi
+
+    # Pattern 6: Code signing errors
+    local signing_errors
+    signing_errors=$(grep -iE '(codesign|signing|provisioning profile|certificate).*error|error.*(codesign|signing|provisioning)' "$build_log" 2>/dev/null | head -5)
+
+    if [[ -n "$signing_errors" ]]; then
+        found_errors=true
+        echo -e "${RED}Code Signing Errors:${NC}"
+        echo "$signing_errors" | while IFS= read -r line; do
+            echo -e "  ${RED}✗${NC} $line"
+        done
+        echo ""
+    fi
+
+    # Show notes that often contain helpful context
+    local notes
+    notes=$(grep -E '\.(swift|m|mm|c|cpp):[0-9]+:[0-9]+: note:' "$build_log" 2>/dev/null | head -10)
+
+    if [[ -n "$notes" && "$found_errors" == true ]]; then
+        echo -e "${YELLOW}Notes:${NC}"
+        echo "$notes" | while IFS= read -r line; do
+            local message=$(echo "$line" | sed -E 's/^.*:[0-9]+:[0-9]+: note: //')
+            echo -e "  ${YELLOW}ℹ${NC} ${message}"
+        done
+        echo ""
+    fi
+
+    # Show failed build commands summary
+    local failed_commands
+    failed_commands=$(grep -A 10 "The following build commands failed:" "$build_log" 2>/dev/null | head -12)
+
+    if [[ -n "$failed_commands" ]]; then
+        echo -e "${YELLOW}Failed Build Commands:${NC}"
+        echo "$failed_commands" | tail -n +2 | grep -vE "^\([0-9]+ failure" | while IFS= read -r line; do
+            line=$(echo "$line" | sed 's/^[[:space:]]*//')
+            if [[ -n "$line" && "$line" != "--" ]]; then
+                if [[ "$line" == *"CompileSwift"* ]]; then
+                    local swift_file=$(echo "$line" | grep -oE '/[^ ]+\.swift' | head -1)
+                    if [[ -n "$swift_file" ]]; then
+                        local swift_filename=$(basename "$swift_file")
+                        echo -e "  ${YELLOW}→${NC} ${BOLD}$swift_filename${NC}"
+                    else
+                        echo -e "  ${YELLOW}→${NC} $line"
+                    fi
+                else
+                    echo -e "  ${YELLOW}→${NC} $line"
+                fi
+            fi
+        done
+        echo ""
+    fi
+
+    # Fallback: if no specific errors found, show recent error-like lines
+    if [[ "$found_errors" == false ]]; then
+        echo -e "${YELLOW}Build output containing errors:${NC}"
+        grep -iE 'error[:\]]|failed|cannot |could not ' "$build_log" 2>/dev/null | \
+            grep -v "BUILD FAILED" | \
+            grep -v "0 errors" | \
+            grep -v "error count" | \
+            tail -20 | while IFS= read -r line; do
+            echo -e "  $line"
+        done
+        echo ""
+    fi
+
+    # Count warnings
+    local warning_count
+    warning_count=$(grep -cE ':[0-9]+:[0-9]+: warning:' "$build_log" 2>/dev/null || true)
+    warning_count="${warning_count:-0}"
+    if [[ "$warning_count" -gt 0 ]]; then
+        echo -e "${YELLOW}⚠ $warning_count warning(s) during build${NC}"
+    fi
+
+    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Clean action - clean derived data for scheme
+if [[ "$ACTION" == "clean" ]]; then
+    echo "Cleaning: $SCHEME"
+    echo "   Workspace: $WORKSPACE"
+    echo ""
+
+    if [[ "$DRY_RUN" == true ]]; then
+        echo -e "${YELLOW}xcodebuild clean \\${NC}"
+        echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
+        echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
+        echo -e "${YELLOW}    -destination \"$DESTINATION\"${NC}"
+        exit 0
+    fi
+
+    xcodebuild clean \
+        -workspace "$WORKSPACE" \
+        -scheme "$SCHEME" \
+        -destination "$DESTINATION" \
+        2>&1 | tail -1
+    CLEAN_STATUS=${PIPESTATUS[0]}
+
+    if [[ $CLEAN_STATUS -ne 0 ]]; then
+        echo -e "${RED}Clean failed (exit code: $CLEAN_STATUS)${NC}"
+        exit $CLEAN_STATUS
+    fi
+    echo -e "${GREEN}Clean succeeded${NC}"
+    exit 0
+fi
+
+# Build action - build only
+if [[ "$ACTION" == "build" ]]; then
+    echo "Building: $SCHEME"
+    echo "   Workspace: $WORKSPACE"
+    echo "   Simulator: $IPHONE_NAME (iOS $OS_VERSION)"
+    if [[ "$CLEAN" == true ]]; then
+        echo "   Clean: yes"
+    fi
+    echo ""
+
+    if [[ "$DRY_RUN" == true ]]; then
+        if [[ "$CLEAN" == true ]]; then
+            echo -e "${YELLOW}xcodebuild clean \\${NC}"
+            echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
+            echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
+            echo -e "${YELLOW}    -destination \"$DESTINATION\"${NC}"
+            echo ""
+        fi
+        echo -e "${YELLOW}xcodebuild build \\${NC}"
+        echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
+        echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
+        echo -e "${YELLOW}    -destination \"$DESTINATION\"${NC}"
+        exit 0
+    fi
+
+    if [[ "$CLEAN" == true ]]; then
+        echo -e "${BLUE}Cleaning...${NC}"
+        xcodebuild clean \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            2>&1 | tail -1
+        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+            echo -e "${RED}Clean failed${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}Clean succeeded${NC}"
+        echo ""
+    fi
+
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
+
+    xcodebuild build \
+        -workspace "$WORKSPACE" \
+        -scheme "$SCHEME" \
+        -destination "$DESTINATION" \
+        2>&1 | tee "$BUILD_LOG"
+    BUILD_STATUS=${PIPESTATUS[0]}
+
+    if [[ $BUILD_STATUS -ne 0 ]]; then
+        echo -e "${RED}Build failed (exit code: $BUILD_STATUS)${NC}"
+        parse_build_output "$BUILD_LOG"
+        echo -e "${CYAN}Build log:${NC} $BUILD_LOG"
+        exit $BUILD_STATUS
+    fi
+    rm -f "$BUILD_LOG"
+    echo -e "${GREEN}Build succeeded${NC}"
+    exit 0
+fi
+
+# Build-run action - build and run app in simulator
+if [[ "$ACTION" == "build-run" ]]; then
+    echo "🚀 Building and running: $SCHEME"
+    echo "   Workspace: $WORKSPACE"
+    echo "   Simulator: $IPHONE_NAME (iOS $OS_VERSION)"
+    if [[ "$CLEAN" == true ]]; then
+        echo "   Clean: yes"
+    fi
+    echo ""
+
+    if [[ "$DRY_RUN" == true ]]; then
+        if [[ "$CLEAN" == true ]]; then
+            echo -e "${YELLOW}xcodebuild clean \\${NC}"
+            echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
+            echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
+            echo -e "${YELLOW}    -destination \"$DESTINATION\"${NC}"
+            echo ""
+        fi
+        echo -e "${YELLOW}xcodebuild build \\${NC}"
+        echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
+        echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
+        echo -e "${YELLOW}    -destination \"$DESTINATION\"${NC}"
+        echo ""
+        echo -e "${YELLOW}# Then: boot simulator, install app, launch app${NC}"
+        exit 0
+    fi
+
+    if [[ "$CLEAN" == true ]]; then
+        echo -e "${BLUE}Cleaning...${NC}"
+        xcodebuild clean \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            2>&1 | tail -1
+        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+            echo -e "${RED}Clean failed${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}Clean succeeded${NC}"
+        echo ""
+    fi
+
+    # Capture build output to parse errors (like xcodebuild.nvim does)
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
+
+    # Run xcodebuild and capture output while streaming to terminal
+    xcodebuild build \
+        -workspace "$WORKSPACE" \
+        -scheme "$SCHEME" \
+        -destination "$DESTINATION" \
+        2>&1 | tee "$BUILD_LOG"
+    BUILD_STATUS=${PIPESTATUS[0]}
+
+    if [[ $BUILD_STATUS -ne 0 ]]; then
+        echo ""
+        echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
+        parse_build_output "$BUILD_LOG"
+        echo ""
+        echo -e "${CYAN}📁 Build log:${NC} $BUILD_LOG"
+        exit $BUILD_STATUS
+    fi
+    rm -f "$BUILD_LOG"
+
+    echo ""
+    echo -e "${GREEN}✅ Build succeeded${NC}"
+
+    # Fetch all build settings in one call to avoid multiple slow xcodebuild invocations
+    BUILD_SETTINGS=$(xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -destination "$DESTINATION" -showBuildSettings 2>/dev/null)
+
+    APP_PATH=$(echo "$BUILD_SETTINGS" | grep -m 1 "BUILT_PRODUCTS_DIR" | awk '{print $3}')
+    APP_NAME=$(echo "$BUILD_SETTINGS" | grep -m 1 "FULL_PRODUCT_NAME" | awk '{print $3}')
+    BUNDLE_ID=$(echo "$BUILD_SETTINGS" | grep -m 1 "PRODUCT_BUNDLE_IDENTIFIER" | awk '{print $3}')
+
+    if [[ -z "$APP_PATH" || -z "$APP_NAME" ]]; then
+        echo -e "${YELLOW}⚠ Could not determine app path. Build succeeded but cannot auto-launch.${NC}"
+        exit 0
+    fi
+
+    FULL_APP_PATH="$APP_PATH/$APP_NAME"
+
+    # Boot simulator if needed
+    DEVICE_ID=$(xcrun simctl list devices available | grep -F "    $IPHONE_NAME (" | grep -oE '[A-F0-9-]{36}' | head -1)
+
+    if [[ -z "$DEVICE_ID" ]]; then
+        echo -e "${RED}Error: Simulator '$IPHONE_NAME' not found${NC}"
+        exit 1
+    fi
+
+    echo "📱 Launching simulator..."
+    xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+    open -a Simulator
+
+    # Install and launch the app
+    echo "📲 Installing app..."
+    xcrun simctl install "$DEVICE_ID" "$FULL_APP_PATH"
+
+    echo "🚀 Launching app..."
+    if [[ -n "$BUNDLE_ID" ]]; then
+        xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
+        echo ""
+        echo -e "${GREEN}✅ App launched: $BUNDLE_ID${NC}"
+    else
+        echo -e "${YELLOW}⚠ App installed but could not determine bundle ID to launch${NC}"
+    fi
+
+    exit 0
+fi
+
+# Run action - launch last built app (no build)
+if [[ "$ACTION" == "run" ]]; then
+    echo "🚀 Launching last built app: $SCHEME"
+    echo "   Workspace: $WORKSPACE"
+    echo "   Simulator: $IPHONE_NAME (iOS $OS_VERSION)"
+    echo ""
+
+    if [[ "$DRY_RUN" == true ]]; then
+        echo -e "${YELLOW}# Boot simulator, install last built app, launch app${NC}"
+        echo -e "${YELLOW}xcrun simctl boot <device-id>${NC}"
+        echo -e "${YELLOW}xcrun simctl install <device-id> <app-path>${NC}"
+        echo -e "${YELLOW}xcrun simctl launch <device-id> <bundle-id>${NC}"
+        exit 0
+    fi
+
+    # Fetch all build settings in one call to avoid multiple slow xcodebuild invocations
+    echo -e "${BLUE}🔍 Reading build settings...${NC}"
+    BUILD_SETTINGS=$(xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -destination "$DESTINATION" -showBuildSettings 2>/dev/null)
+
+    APP_PATH=$(echo "$BUILD_SETTINGS" | grep -m 1 "BUILT_PRODUCTS_DIR" | awk '{print $3}')
+    APP_NAME=$(echo "$BUILD_SETTINGS" | grep -m 1 "FULL_PRODUCT_NAME" | awk '{print $3}')
+    BUNDLE_ID=$(echo "$BUILD_SETTINGS" | grep -m 1 "PRODUCT_BUNDLE_IDENTIFIER" | awk '{print $3}')
+
+    if [[ -z "$APP_PATH" || -z "$APP_NAME" ]]; then
+        echo -e "${RED}Error: Could not determine app path. Have you built the app yet?${NC}"
+        echo -e "${YELLOW}Tip: Run 'build run' first${NC}"
+        exit 1
+    fi
+
+    FULL_APP_PATH="$APP_PATH/$APP_NAME"
+
+    if [[ ! -d "$FULL_APP_PATH" ]]; then
+        echo -e "${RED}Error: App not found at $FULL_APP_PATH${NC}"
+        echo -e "${YELLOW}Tip: Run 'build run' first${NC}"
+        exit 1
+    fi
+
+    # Show app info
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        mod_date=$(stat -f "%Sm" -t "%Y-%m-%d %H:%M:%S" "$FULL_APP_PATH" 2>/dev/null)
+        echo -e "${CYAN}📦 App:${NC} $APP_NAME"
+        echo -e "${CYAN}📅 Built:${NC} $mod_date"
+        echo ""
+    fi
+
+    # Boot simulator if needed
+    DEVICE_ID=$(xcrun simctl list devices available | grep -F "    $IPHONE_NAME (" | grep -oE '[A-F0-9-]{36}' | head -1)
+
+    if [[ -z "$DEVICE_ID" ]]; then
+        echo -e "${RED}Error: Simulator '$IPHONE_NAME' not found${NC}"
+        exit 1
+    fi
+
+    echo "📱 Launching simulator..."
+    xcrun simctl boot "$DEVICE_ID" 2>/dev/null || true
+    open -a Simulator
+
+    # Install and launch the app
+    echo "📲 Installing app..."
+    xcrun simctl install "$DEVICE_ID" "$FULL_APP_PATH"
+
+    echo "🚀 Launching app..."
+    if [[ -n "$BUNDLE_ID" ]]; then
+        xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
+        echo ""
+        echo -e "${GREEN}✅ App launched: $BUNDLE_ID${NC}"
+    else
+        echo -e "${YELLOW}⚠ App installed but could not determine bundle ID to launch${NC}"
+    fi
+
+    exit 0
+fi
+
+echo "🔨 Building and testing scheme: $SCHEME"
+echo "   Workspace: $WORKSPACE"
+echo "   Simulator: $IPHONE_NAME (iOS $OS_VERSION)"
+echo "   Action: $ACTION"
+if [[ -n "$ONLY_TEST" ]]; then
+    echo "   Only: $ONLY_TEST"
+fi
+
+# Build the -only-testing argument if specified
+ONLY_TESTING_ARG=""
+if [[ -n "$ONLY_TEST" ]]; then
+    ONLY_TESTING_ARG="-only-testing:$ONLY_TEST"
+fi
+
+if [[ "$DRY_RUN" == true ]]; then
+    echo -e "${YELLOW}xcodebuild test \\${NC}"
+    echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
+    echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
+    echo -e "${YELLOW}    -destination \"$DESTINATION\" \\${NC}"
+    if [[ "$ACTION" == "coverage" ]]; then
+        echo -e "${YELLOW}    -enableCodeCoverage YES \\${NC}"
+        echo -e "${YELLOW}    -resultBundlePath \"/tmp/${SCHEME}-Coverage-<timestamp>.xcresult\"${ONLY_TESTING_ARG:+ \\}${NC}"
+    else
+        echo -e "${YELLOW}    -resultBundlePath \"/tmp/${SCHEME}-Test-<timestamp>.xcresult\"${ONLY_TESTING_ARG:+ \\}${NC}"
+    fi
+    if [[ -n "$ONLY_TESTING_ARG" ]]; then
+        echo -e "${YELLOW}    $ONLY_TESTING_ARG${NC}"
+    fi
+    exit 0
+fi
+
+if [[ "$ACTION" == "coverage" ]]; then
+    # Generate result bundle in /tmp — DerivedData will eventually clean its own copies,
+    # and /tmp avoids cluttering the project directory
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    XCRESULT_PATH="/tmp/${SCHEME}-Coverage-${TIMESTAMP}.xcresult"
+    BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
+    echo "   xcresult: $XCRESULT_PATH"
+    echo ""
+
+    # Run xcodebuild with code coverage, capturing live output for error parsing
+    if [[ -n "$ONLY_TESTING_ARG" ]]; then
+        xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -enableCodeCoverage YES \
+            -resultBundlePath "$XCRESULT_PATH" \
+            $ONLY_TESTING_ARG \
+            2>&1 | tee "$BUILD_LOG"
+    else
+        xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -enableCodeCoverage YES \
+            -resultBundlePath "$XCRESULT_PATH" \
+            2>&1 | tee "$BUILD_LOG"
+    fi
+    BUILD_STATUS=${PIPESTATUS[0]}
+
+    if [[ $BUILD_STATUS -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}✅ Build and tests passed${NC}"
+        rm -f "$BUILD_LOG"
+    elif [[ $BUILD_STATUS -eq 65 ]]; then
+        # Exit code 65 can mean test failures OR a build failure that cancelled tests.
+        # Check the live log first — if compiler errors are present, build failed.
+        if grep -qE '\.(swift|m|mm|c|cpp):[0-9]+:[0-9]+: error:' "$BUILD_LOG" 2>/dev/null; then
+            echo ""
+            echo -e "${RED}❌ Build failed (cancelled tests)${NC}"
+            parse_build_output "$BUILD_LOG"
+        else
+            echo ""
+            echo -e "${RED}❌ Tests failed${NC}"
+            show_errors "$XCRESULT_PATH"
+        fi
+        rm -f "$BUILD_LOG"
+    else
+        # Non-65 failure = build/compiler error before tests could run
+        # Parse live output which captures compiler errors more reliably
+        echo ""
+        echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
+        parse_build_output "$BUILD_LOG"
+        rm -f "$BUILD_LOG"
+    fi
+
+    # Extract and display coverage report
+    echo ""
+    coverage_json=$(extract_coverage "$XCRESULT_PATH")
+
+    if [[ -n "$coverage_json" ]]; then
+        format_summary "$coverage_json" "$XCRESULT_PATH" "$SCHEME"
+
+        if [[ "$DETAILED" == true ]]; then
+            format_detailed "$coverage_json" "$SCHEME"
+        fi
+    else
+        echo -e "${YELLOW}⚠ No coverage data found in .xcresult${NC}"
+        echo -e "${YELLOW}Make sure tests were run with code coverage enabled.${NC}"
+    fi
+
+    echo ""
+    echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
+    echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
+else
+    # Test action - simple test run without coverage
+    # Use /tmp to avoid cluttering the project directory
+    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+    XCRESULT_PATH="/tmp/${SCHEME}-Test-${TIMESTAMP}.xcresult"
+    BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
+    echo "   xcresult: $XCRESULT_PATH"
+    echo ""
+
+    if [[ -n "$ONLY_TESTING_ARG" ]]; then
+        xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -resultBundlePath "$XCRESULT_PATH" \
+            $ONLY_TESTING_ARG \
+            2>&1 | tee "$BUILD_LOG"
+    else
+        xcodebuild test \
+            -workspace "$WORKSPACE" \
+            -scheme "$SCHEME" \
+            -destination "$DESTINATION" \
+            -resultBundlePath "$XCRESULT_PATH" \
+            2>&1 | tee "$BUILD_LOG"
+    fi
+    BUILD_STATUS=${PIPESTATUS[0]}
+
+    if [[ $BUILD_STATUS -eq 0 ]]; then
+        echo ""
+        echo -e "${GREEN}✅ All tests passed${NC}"
+        rm -rf "$XCRESULT_PATH"
+        rm -f "$BUILD_LOG"
+    elif [[ $BUILD_STATUS -eq 65 ]]; then
+        # Exit code 65 can mean test failures OR a build failure that cancelled tests.
+        # Check the live log first — if compiler errors are present, build failed.
+        if grep -qE '\.(swift|m|mm|c|cpp):[0-9]+:[0-9]+: error:' "$BUILD_LOG" 2>/dev/null; then
+            echo ""
+            echo -e "${RED}❌ Build failed (cancelled tests)${NC}"
+            parse_build_output "$BUILD_LOG"
+        else
+            echo ""
+            echo -e "${RED}❌ Tests failed${NC}"
+            show_errors "$XCRESULT_PATH"
+        fi
+        rm -f "$BUILD_LOG"
+        echo ""
+        echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
+        echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
+    else
+        # Non-65 failure = build/compiler error before tests could run
+        # Parse live output which captures compiler errors more reliably
+        echo ""
+        echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
+        parse_build_output "$BUILD_LOG"
+        rm -f "$BUILD_LOG"
+        echo ""
+        echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
+        echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
+    fi
+fi
+
+exit $BUILD_STATUS
