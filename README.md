@@ -25,9 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
 
 ```bash
 # One-time setup: pick your workspace, scheme, and simulator
-xcb select workspace
-xcb select scheme
-xcb select iphone
+xcb setup
 
 # Build and run
 xcb build run
@@ -37,6 +35,14 @@ Your selections are saved to `.xcbrc` so you don't need to specify them again. O
 
 ```bash
 xcb build run -s DifferentScheme -i "iPhone 16" -o 18.0
+```
+
+To change a default, use the individual select actions:
+
+```bash
+xcb select workspace
+xcb select scheme
+xcb select iphone
 ```
 
 ## Examples
@@ -145,6 +151,7 @@ xcb test coverage -s MyApp --dry-run
 ### Interactive Setup
 
 ```bash
+xcb setup                         # Pick workspace, scheme, and simulator in one step
 xcb select workspace              # Pick from .xcworkspace files in the current directory
 xcb select scheme                 # Pick from available schemes
 xcb select scheme --filter Auth   # Filter the scheme list
@@ -168,6 +175,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 
 | Command | Description |
 |---|---|
+| `xcb setup` | Interactive setup (workspace, scheme, simulator) |
 | `xcb select workspace` | Choose default workspace |
 | `xcb select scheme` | Choose default scheme |
 | `xcb select iphone` | Choose default simulator |
