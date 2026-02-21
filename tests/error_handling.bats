@@ -57,6 +57,11 @@ teardown() {
     [[ "$out" == *"Unknown test sub-action"* ]]
 }
 
+@test "setup rejects sub-actions" {
+    run "$XCB" setup nope
+    [[ "$status" -eq 1 ]]
+}
+
 # --- Missing required flags ---
 
 @test "missing scheme prints error and exits 1" {

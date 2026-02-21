@@ -43,6 +43,7 @@ usage() {
     echo "  select workspace       Pick default Xcode workspace"
     echo "  select scheme          Pick default scheme from workspace"
     echo "  select iphone          Pick default iPhone simulator"
+    echo "  setup                  Select workspace, scheme, and simulator"
     echo ""
     echo "  clean                  Clean derived data for scheme"
     echo "  build                  Build only"
@@ -81,6 +82,7 @@ usage() {
     echo "  $0 build -s MyApp"
     echo "  $0 build run -s MyApp"
     echo "  $0 run -s MyApp"
+    echo "  $0 setup                       Interactive setup (workspace, scheme, simulator)"
     echo "  $0 purge --force"
     exit 1
 }
@@ -435,7 +437,7 @@ format_detailed() {
 # Parse positional arguments (action and sub-action)
 if [[ $# -gt 0 && "$1" != -* ]]; then
     case "$1" in
-        build|test|run|clean|purge|select)
+        build|test|run|clean|purge|select|setup)
             ACTION="$1"; shift
             if [[ $# -gt 0 && "$1" != -* ]]; then
                 case "$ACTION" in
@@ -460,7 +462,7 @@ if [[ $# -gt 0 && "$1" != -* ]]; then
                             echo "Error: Unknown select sub-action '$1'"; usage
                         fi
                         ;;
-                    run|clean|purge)
+                    run|clean|purge|setup)
                         echo "Error: '$ACTION' does not take a sub-action"; usage
                         ;;
                 esac
@@ -549,7 +551,7 @@ case "$ACTION" in
             echo "Error: 'select' requires a sub-action (scheme or iphone)"; usage
         fi
         ;;
-    clean|run|purge) ;;
+    clean|run|purge|setup) ;;
     *) echo "Error: Unknown action '$ACTION'"; usage ;;
 esac
 
@@ -717,6 +719,14 @@ if [[ "$ACTION" == "select" ]]; then
         echo -e "${GREEN}Default simulator set to: ${BOLD}$selected_name${NC} ${GREEN}(iOS $selected_os)${NC}"
     fi
 
+    exit 0
+fi
+
+# Setup action - run all select sub-actions in sequence
+if [[ "$ACTION" == "setup" ]]; then
+    "$0" select workspace || exit $?
+    "$0" select scheme || exit $?
+    "$0" select iphone || exit $?
     exit 0
 fi
 
