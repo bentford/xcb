@@ -6,6 +6,12 @@ A command-line tool that brings Xcode build, test, and run workflows to the term
 
 Born out of frustration with a large Xcode project containing hundreds of schemes, where constantly switching between builds, tests, and simulators in the IDE was painfully slow. `xcb` makes it easy to repeat commands, jump between schemes, and get fast feedback from the command line.
 
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
+```
+
 ## Features
 
 - **Build & Run** — Build schemes and launch apps on simulators directly from the terminal
