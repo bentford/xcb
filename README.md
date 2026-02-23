@@ -203,4 +203,4 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 
 ## License
 
-MIT
+[MIT](LICENSE)
