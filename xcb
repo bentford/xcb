@@ -29,6 +29,7 @@ FORCE=false
 FILTER=""
 DRY_RUN=false
 CLEAN=false
+AUDIBLE=false
 
 # Load saved defaults from .xcbrc
 XCB_CONFIG=".xcbrc"
@@ -68,6 +69,7 @@ usage() {
     echo "  --clean                Clean before building (build actions only)"
     echo "  --filter <text>        Filter schemes by text (select scheme only)"
     echo "  --dry-run              Show the command without running it"
+    echo "  -a, --audible          Play a sound when the command finishes"
     echo "  --force                Skip confirmation (purge only)"
     echo "  -h, --help             Show this help"
     echo ""
@@ -505,6 +507,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --clean)
             CLEAN=true
+            shift
+            ;;
+        -a|--audible)
+            AUDIBLE=true
             shift
             ;;
         --dry-run)
@@ -1033,6 +1039,22 @@ parse_build_output() {
     echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
+play_sound() {
+    if [[ "$AUDIBLE" != true ]]; then
+        return
+    fi
+    if ! command -v afplay &>/dev/null; then
+        return
+    fi
+    local sound_file
+    if [[ "$1" -eq 0 ]]; then
+        sound_file="/System/Library/Sounds/Glass.aiff"
+    else
+        sound_file="/System/Library/Sounds/Basso.aiff"
+    fi
+    afplay "$sound_file" &>/dev/null &
+}
+
 # Clean action - clean derived data for scheme
 if [[ "$ACTION" == "clean" ]]; then
     echo "Cleaning: $SCHEME"
@@ -1056,9 +1078,11 @@ if [[ "$ACTION" == "clean" ]]; then
 
     if [[ $CLEAN_STATUS -ne 0 ]]; then
         echo -e "${RED}Clean failed (exit code: $CLEAN_STATUS)${NC}"
+        play_sound $CLEAN_STATUS
         exit $CLEAN_STATUS
     fi
     echo -e "${GREEN}Clean succeeded${NC}"
+    play_sound 0
     exit 0
 fi
 
@@ -1096,6 +1120,7 @@ if [[ "$ACTION" == "build" ]]; then
             2>&1 | tail -1
         if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
             echo -e "${RED}Clean failed${NC}"
+            play_sound 1
             exit 1
         fi
         echo -e "${GREEN}Clean succeeded${NC}"
@@ -1116,10 +1141,12 @@ if [[ "$ACTION" == "build" ]]; then
         echo -e "${RED}Build failed (exit code: $BUILD_STATUS)${NC}"
         parse_build_output "$BUILD_LOG"
         echo -e "${CYAN}Build log:${NC} $BUILD_LOG"
+        play_sound $BUILD_STATUS
         exit $BUILD_STATUS
     fi
     rm -f "$BUILD_LOG"
     echo -e "${GREEN}Build succeeded${NC}"
+    play_sound 0
     exit 0
 fi
 
@@ -1159,6 +1186,7 @@ if [[ "$ACTION" == "build-run" ]]; then
             2>&1 | tail -1
         if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
             echo -e "${RED}Clean failed${NC}"
+            play_sound 1
             exit 1
         fi
         echo -e "${GREEN}Clean succeeded${NC}"
@@ -1183,6 +1211,7 @@ if [[ "$ACTION" == "build-run" ]]; then
         parse_build_output "$BUILD_LOG"
         echo ""
         echo -e "${CYAN}📁 Build log:${NC} $BUILD_LOG"
+        play_sound $BUILD_STATUS
         exit $BUILD_STATUS
     fi
     rm -f "$BUILD_LOG"
@@ -1199,6 +1228,7 @@ if [[ "$ACTION" == "build-run" ]]; then
 
     if [[ -z "$APP_PATH" || -z "$APP_NAME" ]]; then
         echo -e "${YELLOW}⚠ Could not determine app path. Build succeeded but cannot auto-launch.${NC}"
+        play_sound 0
         exit 0
     fi
 
@@ -1209,6 +1239,7 @@ if [[ "$ACTION" == "build-run" ]]; then
 
     if [[ -z "$DEVICE_ID" ]]; then
         echo -e "${RED}Error: Simulator '$IPHONE_NAME' not found${NC}"
+        play_sound 1
         exit 1
     fi
 
@@ -1229,6 +1260,7 @@ if [[ "$ACTION" == "build-run" ]]; then
         echo -e "${YELLOW}⚠ App installed but could not determine bundle ID to launch${NC}"
     fi
 
+    play_sound 0
     exit 0
 fi
 
@@ -1471,4 +1503,5 @@ else
     fi
 fi
 
+play_sound $BUILD_STATUS
 exit $BUILD_STATUS
