@@ -146,6 +146,15 @@ xcb build run -s MyApp --dry-run
 xcb test coverage -s MyApp --dry-run
 ```
 
+### Audible Notifications
+
+Play a sound when a long-running command finishes (Glass for success, Basso for failure):
+
+```bash
+xcb build -s MyApp -a
+xcb test coverage -s MyApp --audible
+```
+
 ## Configuration
 
 ### Interactive Setup
@@ -201,6 +210,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 | `--skip-build` | Report coverage from last build |
 | `--clean` | Clean before building |
 | `--dry-run` | Show commands without executing |
+| `-a`, `--audible` | Play a sound when the command finishes |
 | `--force` | Skip confirmation prompts |
 | `--filter` | Filter scheme list during selection |
 
