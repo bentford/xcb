@@ -19,6 +19,7 @@ teardown() {
     [[ "$out" == *'-scheme "TestScheme"'* ]]
     [[ "$out" == *'-enableCodeCoverage YES'* ]]
     [[ "$out" == *'-resultBundlePath "/tmp/TestScheme-Coverage-<timestamp>.xcresult"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
 }
 
 @test "test coverage --only --dry-run includes both coverage and only-testing" {

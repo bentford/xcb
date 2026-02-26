@@ -15,6 +15,36 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 NC='\033[0m' # No Color
 
+require_xcbeautify() {
+    if ! command -v xcbeautify &>/dev/null; then
+        echo -e "${RED}Error: xcbeautify is not installed${NC}"
+        echo -e "${YELLOW}Install with: brew install xcbeautify${NC}"
+        exit 1
+    fi
+}
+
+# Re-render raw xcodebuild log through xcbeautify --quiet to show warnings and errors.
+# Pass "true" as $2 to include test results in the summary.
+show_error_summary() {
+    local build_log="$1"
+    local include_tests="${2:-false}"
+    local summary
+    if [[ "$include_tests" == true ]]; then
+        summary=$(xcbeautify --quiet --is-ci < "$build_log")
+    else
+        summary=$(xcbeautify --quiet < "$build_log")
+    fi
+    summary=$(echo "$summary" | sed '/^[[:space:]]*$/d')
+    if [[ -n "$summary" ]]; then
+        echo ""
+        echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}Summary${NC}"
+        echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo "$summary"
+        echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    fi
+}
+
 # Default values (set via 'select' commands or CLI flags; saved in .xcbrc)
 WORKSPACE=""
 IPHONE_NAME=""
@@ -53,7 +83,6 @@ usage() {
     echo ""
     echo "  test                   Build and run tests"
     echo "  test coverage          Build and run tests with code coverage report"
-    echo "  test errors            Show errors/failures from last test build"
     echo ""
     echo "  purge                  Remove build artifacts from this script"
     echo ""
@@ -151,174 +180,6 @@ extract_coverage() {
     fi
 
     xcrun xccov view --report --json "$xcresult_path" 2>/dev/null
-}
-
-# Function: Show test failures and build errors from xcresult
-show_errors() {
-    local xcresult_path="$1"
-    local db_path="$xcresult_path/database.sqlite3"
-
-    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}❌ FAILURE DETAILS${NC}"
-    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-
-    local found_errors=false
-
-    # Xcode 16+ uses SQLite database
-    if [[ -f "$db_path" ]]; then
-        # Query build errors (severity 0 = error)
-        local build_errors
-        build_errors=$(sqlite3 "$db_path" "
-            SELECT b.message, b.issueType, d.url, b.producingTarget
-            FROM BuildIssues b
-            LEFT JOIN DocumentLocations d ON b.documentLocation_fk = d.rowid
-            WHERE b.severity = 0
-            ORDER BY b.orderInAction;" 2>/dev/null)
-
-        if [[ -n "$build_errors" ]]; then
-            echo -e "${RED}Build Errors:${NC}"
-            echo "$build_errors" | while IFS='|' read -r message issue_type url target; do
-                if [[ -n "$message" ]]; then
-                    local file_path=$(echo "$url" | sed 's|file://||' | cut -d'#' -f1)
-                    local filename=$(basename "$file_path" 2>/dev/null)
-                    local line_num=$(echo "$url" | grep -oE 'StartingLineNumber=[0-9]+' | cut -d'=' -f2)
-                    local col_num=$(echo "$url" | grep -oE 'StartingColumnNumber=[0-9]+' | cut -d'=' -f2)
-
-                    if [[ -n "$filename" && "$filename" != "" ]]; then
-                        if [[ -n "$line_num" ]]; then
-                            echo -e "  ${RED}✗${NC} ${BOLD}${filename}:${line_num}:${col_num:-1}${NC}"
-                        else
-                            echo -e "  ${RED}✗${NC} ${BOLD}${filename}${NC}"
-                        fi
-                        echo -e "    ${message}"
-                        if [[ -n "$target" ]]; then
-                            echo -e "    ${YELLOW}Target:${NC} $target"
-                        fi
-                        echo -e "    ${CYAN}→${NC} $file_path"
-                    else
-                        echo -e "  ${RED}✗${NC} ${message}"
-                    fi
-                    echo ""
-                fi
-            done
-            found_errors=true
-        fi
-
-        # Query test failures from TestIssues table
-        local test_failures
-        test_failures=$(sqlite3 "$db_path" "
-            SELECT ti.message, tc.name, d.url
-            FROM TestIssues ti
-            LEFT JOIN TestCaseRuns tcr ON ti.testCaseRun_fk = tcr.rowid
-            LEFT JOIN TestCases tc ON tcr.testCase_fk = tc.rowid
-            LEFT JOIN DocumentLocations d ON ti.documentLocation_fk = d.rowid
-            WHERE ti.issueType = 'Failure'
-            LIMIT 20;" 2>/dev/null)
-
-        if [[ -n "$test_failures" ]]; then
-            echo -e "${RED}Test Failures:${NC}"
-            echo "$test_failures" | while IFS='|' read -r message test_name url; do
-                if [[ -n "$test_name" ]]; then
-                    echo -e "  ${RED}✗${NC} ${BOLD}${test_name}${NC}"
-                    echo -e "    ${message}"
-                    if [[ -n "$url" ]]; then
-                        local file_path=$(echo "$url" | sed 's|file://||' | cut -d'#' -f1)
-                        local line_num=$(echo "$url" | grep -oE 'StartingLineNumber=[0-9]+' | cut -d'=' -f2)
-                        echo -e "    ${CYAN}→${NC} ${file_path}:${line_num:-}"
-                    fi
-                    echo ""
-                fi
-            done
-            found_errors=true
-        fi
-
-        # Show warning count
-        local warning_count
-        warning_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM BuildIssues WHERE severity = 2 AND issueType = 'Warning';" 2>/dev/null)
-        if [[ -n "$warning_count" && "$warning_count" != "0" ]]; then
-            echo -e "${YELLOW}⚠ $warning_count warning(s)${NC}"
-        fi
-
-        if [[ "$found_errors" == true ]]; then
-            echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-            return
-        fi
-    fi
-
-    # Fallback: Try Xcode 16+ xcresulttool test-results
-    if ! command -v jq &> /dev/null; then
-        echo -e "${YELLOW}⚠ jq not installed. Install for detailed error output.${NC}"
-        echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        return
-    fi
-
-    local tests_json
-    tests_json=$(xcrun xcresulttool get test-results tests --path "$xcresult_path" 2>/dev/null)
-
-    if [[ -n "$tests_json" ]]; then
-        local failures
-        failures=$(echo "$tests_json" | jq -r '
-            [.. | objects | select(.result == "Failed" and .nodeType == "Test Case")] | .[] |
-            .nodeIdentifier as $test |
-            (.children // [] | map(select(.nodeType == "Failure Message")) | .[0].name // "No message") as $msg |
-            "\($test)|\($msg)"
-        ' 2>/dev/null)
-
-        if [[ -n "$failures" ]]; then
-            echo -e "${RED}Failed Tests:${NC}"
-            echo "$failures" | while IFS='|' read -r test_name message; do
-                if [[ -n "$test_name" ]]; then
-                    echo -e "  ${RED}✗${NC} $test_name"
-                    echo -e "    $message"
-                    echo ""
-                fi
-            done
-            found_errors=true
-        fi
-    fi
-
-    # Fallback: Try legacy format (Xcode 15 and earlier)
-    if [[ "$found_errors" == false ]]; then
-        local result_json
-        result_json=$(xcrun xcresulttool get object --legacy --path "$xcresult_path" --format json 2>/dev/null)
-
-        if [[ -n "$result_json" ]]; then
-            local test_failures
-            test_failures=$(echo "$result_json" | jq -r '
-                .issues.testFailureSummaries._values // [] | .[] |
-                "  \(.testCaseName._value // "Unknown test"):",
-                "    \(.message._value // "No message")",
-                ""
-            ' 2>/dev/null)
-
-            if [[ -n "$test_failures" && "$test_failures" != "" ]]; then
-                echo -e "${RED}Test Failures:${NC}"
-                echo "$test_failures"
-                found_errors=true
-            fi
-
-            local error_summaries
-            error_summaries=$(echo "$result_json" | jq -r '
-                .issues.errorSummaries._values // [] | .[] |
-                "  \(.issueType._value // "Error"):",
-                "    \(.message._value // "No message")",
-                ""
-            ' 2>/dev/null)
-
-            if [[ -n "$error_summaries" && "$error_summaries" != "" ]]; then
-                echo -e "${RED}Build Errors:${NC}"
-                echo "$error_summaries"
-                found_errors=true
-            fi
-        fi
-    fi
-
-    if [[ "$found_errors" == false ]]; then
-        echo -e "${YELLOW}No detailed error information extracted.${NC}"
-        echo -e "${YELLOW}Open in Xcode for full details: open $xcresult_path${NC}"
-    fi
-
-    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
 # Function: Format coverage summary
@@ -444,7 +305,7 @@ if [[ $# -gt 0 && "$1" != -* ]]; then
             if [[ $# -gt 0 && "$1" != -* ]]; then
                 case "$ACTION" in
                     test)
-                        if [[ "$1" == "coverage" || "$1" == "errors" ]]; then
+                        if [[ "$1" == "coverage" ]]; then
                             SUB_ACTION="$1"; shift
                         else
                             echo "Error: Unknown test sub-action '$1'"; usage
@@ -547,7 +408,6 @@ case "$ACTION" in
                     ACTION="coverage"
                 fi
                 ;;
-            errors) ACTION="errors" ;;
             "") ;; # stays "test"
             *)  echo "Error: Unknown test sub-action '$SUB_ACTION'"; usage ;;
         esac
@@ -789,7 +649,7 @@ if [[ -n "$ONLY_TEST" && "$ACTION" != "test" && "$ACTION" != "coverage" ]]; then
     ONLY_TEST=""
 fi
 
-if [[ "$ACTION" == "report" || "$ACTION" == "errors" ]]; then
+if [[ "$ACTION" == "report" ]]; then
     echo -e "${BLUE}🔍 Searching for most recent .xcresult...${NC}"
     XCRESULT_PATH=$(find_most_recent_xcresult "${SCHEME:-}")
     if [[ -z "$XCRESULT_PATH" ]]; then
@@ -851,193 +711,6 @@ if [[ "$ACTION" == "report" ]]; then
     echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
     exit 0
 fi
-
-# Errors action - show failures from existing xcresult
-if [[ "$ACTION" == "errors" ]]; then
-    echo "❌ Error report for: $(basename "$XCRESULT_PATH")"
-    show_errors "$XCRESULT_PATH"
-    echo ""
-    echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
-    echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
-    exit 0
-fi
-
-
-# Function: Parse build errors from live xcodebuild output (like xcodebuild.nvim)
-parse_build_output() {
-    local build_log="$1"
-    local found_errors=false
-
-    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}❌ BUILD ERRORS${NC}"
-    echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}\n"
-
-    # Pattern 1: Swift/Clang compiler errors with file location
-    # Format: /path/to/file.swift:123:45: error: message
-    local compiler_errors
-    compiler_errors=$(grep -E '\.(swift|m|mm|c|cpp|h|hpp):[0-9]+:[0-9]+: error:' "$build_log" 2>/dev/null | head -30)
-
-    if [[ -n "$compiler_errors" ]]; then
-        found_errors=true
-        echo -e "${RED}Compiler Errors:${NC}"
-        echo "$compiler_errors" | while IFS= read -r line; do
-            # Parse: /path/to/file.swift:123:45: error: message
-            local file_path=$(echo "$line" | sed -E 's/:[0-9]+:[0-9]+: error:.*$//')
-            local line_col=$(echo "$line" | grep -oE ':[0-9]+:[0-9]+:' | head -1)
-            local line_num=$(echo "$line_col" | cut -d: -f2)
-            local col_num=$(echo "$line_col" | cut -d: -f3)
-            local message=$(echo "$line" | sed -E 's/^.*:[0-9]+:[0-9]+: error: //')
-            local filename=$(basename "$file_path")
-
-            echo -e "  ${RED}✗${NC} ${BOLD}${filename}:${line_num}:${col_num}${NC}"
-            echo -e "    ${message}"
-            echo -e "    ${CYAN}→${NC} $file_path"
-            echo ""
-        done
-    fi
-
-    # Pattern 2: Generic errors (error: message without file path)
-    local generic_errors
-    generic_errors=$(grep -E '^error: |: error: ' "$build_log" 2>/dev/null | \
-        grep -v '\.swift:[0-9]' | grep -v '\.m:[0-9]' | grep -v '\.c:[0-9]' | \
-        grep -v "BUILD FAILED" | head -10)
-
-    if [[ -n "$generic_errors" ]]; then
-        found_errors=true
-        echo -e "${RED}Build Errors:${NC}"
-        echo "$generic_errors" | while IFS= read -r line; do
-            local message=$(echo "$line" | sed -E 's/^.*error: //')
-            echo -e "  ${RED}✗${NC} ${message}"
-        done
-        echo ""
-    fi
-
-    # Pattern 3: Linker errors
-    local linker_errors
-    linker_errors=$(grep -E '(Undefined symbols for|ld: |clang: error:|Linker command failed)' "$build_log" 2>/dev/null | head -15)
-
-    if [[ -n "$linker_errors" ]]; then
-        found_errors=true
-        echo -e "${RED}Linker Errors:${NC}"
-        echo "$linker_errors" | while IFS= read -r line; do
-            echo -e "  ${RED}✗${NC} $line"
-        done
-        echo ""
-
-        # Show undefined symbol details
-        local undefined_symbols
-        undefined_symbols=$(grep -A 2 "Undefined symbols" "$build_log" 2>/dev/null | grep -E '^\s+"_' | head -10)
-        if [[ -n "$undefined_symbols" ]]; then
-            echo -e "${YELLOW}Missing Symbols:${NC}"
-            echo "$undefined_symbols" | while IFS= read -r line; do
-                local symbol=$(echo "$line" | sed -E 's/^[[:space:]]*"_([^"]+)".*/\1/')
-                echo -e "  ${YELLOW}→${NC} $symbol"
-            done
-            echo ""
-        fi
-    fi
-
-    # Pattern 4: Phase script execution failures
-    local phase_failures
-    phase_failures=$(grep -E 'PhaseScriptExecution.*failed|Run custom shell script.*failed' "$build_log" 2>/dev/null | head -5)
-
-    if [[ -n "$phase_failures" ]]; then
-        found_errors=true
-        echo -e "${RED}Script Phase Failures:${NC}"
-        echo "$phase_failures" | while IFS= read -r line; do
-            echo -e "  ${RED}✗${NC} $line"
-        done
-        echo ""
-    fi
-
-    # Pattern 5: Module/import errors
-    local module_errors
-    module_errors=$(grep -E "(No such module|Could not find module|Missing required module)" "$build_log" 2>/dev/null | head -10)
-
-    if [[ -n "$module_errors" ]]; then
-        found_errors=true
-        echo -e "${RED}Module Errors:${NC}"
-        echo "$module_errors" | while IFS= read -r line; do
-            local message=$(echo "$line" | sed -E 's/^.*error: //')
-            echo -e "  ${RED}✗${NC} ${message}"
-        done
-        echo ""
-    fi
-
-    # Pattern 6: Code signing errors
-    local signing_errors
-    signing_errors=$(grep -iE '(codesign|signing|provisioning profile|certificate).*error|error.*(codesign|signing|provisioning)' "$build_log" 2>/dev/null | head -5)
-
-    if [[ -n "$signing_errors" ]]; then
-        found_errors=true
-        echo -e "${RED}Code Signing Errors:${NC}"
-        echo "$signing_errors" | while IFS= read -r line; do
-            echo -e "  ${RED}✗${NC} $line"
-        done
-        echo ""
-    fi
-
-    # Show notes that often contain helpful context
-    local notes
-    notes=$(grep -E '\.(swift|m|mm|c|cpp):[0-9]+:[0-9]+: note:' "$build_log" 2>/dev/null | head -10)
-
-    if [[ -n "$notes" && "$found_errors" == true ]]; then
-        echo -e "${YELLOW}Notes:${NC}"
-        echo "$notes" | while IFS= read -r line; do
-            local message=$(echo "$line" | sed -E 's/^.*:[0-9]+:[0-9]+: note: //')
-            echo -e "  ${YELLOW}ℹ${NC} ${message}"
-        done
-        echo ""
-    fi
-
-    # Show failed build commands summary
-    local failed_commands
-    failed_commands=$(grep -A 10 "The following build commands failed:" "$build_log" 2>/dev/null | head -12)
-
-    if [[ -n "$failed_commands" ]]; then
-        echo -e "${YELLOW}Failed Build Commands:${NC}"
-        echo "$failed_commands" | tail -n +2 | grep -vE "^\([0-9]+ failure" | while IFS= read -r line; do
-            line=$(echo "$line" | sed 's/^[[:space:]]*//')
-            if [[ -n "$line" && "$line" != "--" ]]; then
-                if [[ "$line" == *"CompileSwift"* ]]; then
-                    local swift_file=$(echo "$line" | grep -oE '/[^ ]+\.swift' | head -1)
-                    if [[ -n "$swift_file" ]]; then
-                        local swift_filename=$(basename "$swift_file")
-                        echo -e "  ${YELLOW}→${NC} ${BOLD}$swift_filename${NC}"
-                    else
-                        echo -e "  ${YELLOW}→${NC} $line"
-                    fi
-                else
-                    echo -e "  ${YELLOW}→${NC} $line"
-                fi
-            fi
-        done
-        echo ""
-    fi
-
-    # Fallback: if no specific errors found, show recent error-like lines
-    if [[ "$found_errors" == false ]]; then
-        echo -e "${YELLOW}Build output containing errors:${NC}"
-        grep -iE 'error[:\]]|failed|cannot |could not ' "$build_log" 2>/dev/null | \
-            grep -v "BUILD FAILED" | \
-            grep -v "0 errors" | \
-            grep -v "error count" | \
-            tail -20 | while IFS= read -r line; do
-            echo -e "  $line"
-        done
-        echo ""
-    fi
-
-    # Count warnings
-    local warning_count
-    warning_count=$(grep -cE ':[0-9]+:[0-9]+: warning:' "$build_log" 2>/dev/null || true)
-    warning_count="${warning_count:-0}"
-    if [[ "$warning_count" -gt 0 ]]; then
-        echo -e "${YELLOW}⚠ $warning_count warning(s) during build${NC}"
-    fi
-
-    echo -e "\n${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-}
 
 play_sound() {
     if [[ "$AUDIBLE" != true ]]; then
@@ -1107,9 +780,12 @@ if [[ "$ACTION" == "build" ]]; then
         echo -e "${YELLOW}xcodebuild build \\${NC}"
         echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
         echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
-        echo -e "${YELLOW}    -destination \"$DESTINATION\"${NC}"
+        echo -e "${YELLOW}    -destination \"$DESTINATION\" \\${NC}"
+        echo -e "${YELLOW}    2>&1 | xcbeautify${NC}"
         exit 0
     fi
+
+    require_xcbeautify
 
     if [[ "$CLEAN" == true ]]; then
         echo -e "${BLUE}Cleaning...${NC}"
@@ -1134,18 +810,19 @@ if [[ "$ACTION" == "build" ]]; then
         -workspace "$WORKSPACE" \
         -scheme "$SCHEME" \
         -destination "$DESTINATION" \
-        2>&1 | tee "$BUILD_LOG"
+        2>&1 | tee "$BUILD_LOG" | xcbeautify
     BUILD_STATUS=${PIPESTATUS[0]}
 
     if [[ $BUILD_STATUS -ne 0 ]]; then
+        show_error_summary "$BUILD_LOG"
+        echo ""
         echo -e "${RED}Build failed (exit code: $BUILD_STATUS)${NC}"
-        parse_build_output "$BUILD_LOG"
         echo -e "${CYAN}Build log:${NC} $BUILD_LOG"
         play_sound $BUILD_STATUS
         exit $BUILD_STATUS
     fi
+    show_error_summary "$BUILD_LOG"
     rm -f "$BUILD_LOG"
-    echo -e "${GREEN}Build succeeded${NC}"
     play_sound 0
     exit 0
 fi
@@ -1171,11 +848,14 @@ if [[ "$ACTION" == "build-run" ]]; then
         echo -e "${YELLOW}xcodebuild build \\${NC}"
         echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
         echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
-        echo -e "${YELLOW}    -destination \"$DESTINATION\"${NC}"
+        echo -e "${YELLOW}    -destination \"$DESTINATION\" \\${NC}"
+        echo -e "${YELLOW}    2>&1 | xcbeautify${NC}"
         echo ""
         echo -e "${YELLOW}# Then: boot simulator, install app, launch app${NC}"
         exit 0
     fi
+
+    require_xcbeautify
 
     if [[ "$CLEAN" == true ]]; then
         echo -e "${BLUE}Cleaning...${NC}"
@@ -1193,31 +873,27 @@ if [[ "$ACTION" == "build-run" ]]; then
         echo ""
     fi
 
-    # Capture build output to parse errors (like xcodebuild.nvim does)
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
     BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
 
-    # Run xcodebuild and capture output while streaming to terminal
     xcodebuild build \
         -workspace "$WORKSPACE" \
         -scheme "$SCHEME" \
         -destination "$DESTINATION" \
-        2>&1 | tee "$BUILD_LOG"
+        2>&1 | tee "$BUILD_LOG" | xcbeautify
     BUILD_STATUS=${PIPESTATUS[0]}
 
     if [[ $BUILD_STATUS -ne 0 ]]; then
+        show_error_summary "$BUILD_LOG"
         echo ""
         echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
-        parse_build_output "$BUILD_LOG"
         echo ""
         echo -e "${CYAN}📁 Build log:${NC} $BUILD_LOG"
         play_sound $BUILD_STATUS
         exit $BUILD_STATUS
     fi
+    show_error_summary "$BUILD_LOG"
     rm -f "$BUILD_LOG"
-
-    echo ""
-    echo -e "${GREEN}✅ Build succeeded${NC}"
 
     # Fetch all build settings in one call to avoid multiple slow xcodebuild invocations
     BUILD_SETTINGS=$(xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -destination "$DESTINATION" -showBuildSettings 2>/dev/null)
@@ -1358,15 +1034,16 @@ if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}    -destination \"$DESTINATION\" \\${NC}"
     if [[ "$ACTION" == "coverage" ]]; then
         echo -e "${YELLOW}    -enableCodeCoverage YES \\${NC}"
-        echo -e "${YELLOW}    -resultBundlePath \"/tmp/${SCHEME}-Coverage-<timestamp>.xcresult\"${ONLY_TESTING_ARG:+ \\}${NC}"
-    else
-        echo -e "${YELLOW}    -resultBundlePath \"/tmp/${SCHEME}-Test-<timestamp>.xcresult\"${ONLY_TESTING_ARG:+ \\}${NC}"
+        echo -e "${YELLOW}    -resultBundlePath \"/tmp/${SCHEME}-Coverage-<timestamp>.xcresult\" \\${NC}"
     fi
     if [[ -n "$ONLY_TESTING_ARG" ]]; then
-        echo -e "${YELLOW}    $ONLY_TESTING_ARG${NC}"
+        echo -e "${YELLOW}    $ONLY_TESTING_ARG \\${NC}"
     fi
+    echo -e "${YELLOW}    2>&1 | xcbeautify${NC}"
     exit 0
 fi
+
+require_xcbeautify
 
 if [[ "$ACTION" == "coverage" ]]; then
     # Generate result bundle in /tmp — DerivedData will eventually clean its own copies,
@@ -1377,7 +1054,6 @@ if [[ "$ACTION" == "coverage" ]]; then
     echo "   xcresult: $XCRESULT_PATH"
     echo ""
 
-    # Run xcodebuild with code coverage, capturing live output for error parsing
     if [[ -n "$ONLY_TESTING_ARG" ]]; then
         xcodebuild test \
             -workspace "$WORKSPACE" \
@@ -1386,7 +1062,7 @@ if [[ "$ACTION" == "coverage" ]]; then
             -enableCodeCoverage YES \
             -resultBundlePath "$XCRESULT_PATH" \
             $ONLY_TESTING_ARG \
-            2>&1 | tee "$BUILD_LOG"
+            2>&1 | tee "$BUILD_LOG" | xcbeautify
     else
         xcodebuild test \
             -workspace "$WORKSPACE" \
@@ -1394,34 +1070,23 @@ if [[ "$ACTION" == "coverage" ]]; then
             -destination "$DESTINATION" \
             -enableCodeCoverage YES \
             -resultBundlePath "$XCRESULT_PATH" \
-            2>&1 | tee "$BUILD_LOG"
+            2>&1 | tee "$BUILD_LOG" | xcbeautify
     fi
     BUILD_STATUS=${PIPESTATUS[0]}
 
     if [[ $BUILD_STATUS -eq 0 ]]; then
-        echo ""
-        echo -e "${GREEN}✅ Build and tests passed${NC}"
+        show_error_summary "$BUILD_LOG"
         rm -f "$BUILD_LOG"
     elif [[ $BUILD_STATUS -eq 65 ]]; then
-        # Exit code 65 can mean test failures OR a build failure that cancelled tests.
-        # Check the live log first — if compiler errors are present, build failed.
-        if grep -qE '\.(swift|m|mm|c|cpp):[0-9]+:[0-9]+: error:' "$BUILD_LOG" 2>/dev/null; then
-            echo ""
-            echo -e "${RED}❌ Build failed (cancelled tests)${NC}"
-            parse_build_output "$BUILD_LOG"
-        else
-            echo ""
-            echo -e "${RED}❌ Tests failed${NC}"
-            show_errors "$XCRESULT_PATH"
-        fi
+        show_error_summary "$BUILD_LOG" true
         rm -f "$BUILD_LOG"
+        echo ""
+        echo -e "${RED}❌ Tests failed${NC}"
     else
-        # Non-65 failure = build/compiler error before tests could run
-        # Parse live output which captures compiler errors more reliably
+        show_error_summary "$BUILD_LOG"
+        rm -f "$BUILD_LOG"
         echo ""
         echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
-        parse_build_output "$BUILD_LOG"
-        rm -f "$BUILD_LOG"
     fi
 
     # Extract and display coverage report
@@ -1444,11 +1109,7 @@ if [[ "$ACTION" == "coverage" ]]; then
     echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
 else
     # Test action - simple test run without coverage
-    # Use /tmp to avoid cluttering the project directory
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    XCRESULT_PATH="/tmp/${SCHEME}-Test-${TIMESTAMP}.xcresult"
-    BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
-    echo "   xcresult: $XCRESULT_PATH"
+    BUILD_LOG="/tmp/xcodebuild-${SCHEME}-$(date +%Y%m%d_%H%M%S).log"
     echo ""
 
     if [[ -n "$ONLY_TESTING_ARG" ]]; then
@@ -1456,50 +1117,30 @@ else
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
-            -resultBundlePath "$XCRESULT_PATH" \
             $ONLY_TESTING_ARG \
-            2>&1 | tee "$BUILD_LOG"
+            2>&1 | tee "$BUILD_LOG" | xcbeautify
     else
         xcodebuild test \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
-            -resultBundlePath "$XCRESULT_PATH" \
-            2>&1 | tee "$BUILD_LOG"
+            2>&1 | tee "$BUILD_LOG" | xcbeautify
     fi
     BUILD_STATUS=${PIPESTATUS[0]}
 
     if [[ $BUILD_STATUS -eq 0 ]]; then
-        echo ""
-        echo -e "${GREEN}✅ All tests passed${NC}"
-        rm -rf "$XCRESULT_PATH"
+        show_error_summary "$BUILD_LOG"
         rm -f "$BUILD_LOG"
     elif [[ $BUILD_STATUS -eq 65 ]]; then
-        # Exit code 65 can mean test failures OR a build failure that cancelled tests.
-        # Check the live log first — if compiler errors are present, build failed.
-        if grep -qE '\.(swift|m|mm|c|cpp):[0-9]+:[0-9]+: error:' "$BUILD_LOG" 2>/dev/null; then
-            echo ""
-            echo -e "${RED}❌ Build failed (cancelled tests)${NC}"
-            parse_build_output "$BUILD_LOG"
-        else
-            echo ""
-            echo -e "${RED}❌ Tests failed${NC}"
-            show_errors "$XCRESULT_PATH"
-        fi
+        show_error_summary "$BUILD_LOG" true
         rm -f "$BUILD_LOG"
         echo ""
-        echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
-        echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
+        echo -e "${RED}❌ Tests failed${NC}"
     else
-        # Non-65 failure = build/compiler error before tests could run
-        # Parse live output which captures compiler errors more reliably
+        show_error_summary "$BUILD_LOG"
+        rm -f "$BUILD_LOG"
         echo ""
         echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
-        parse_build_output "$BUILD_LOG"
-        rm -f "$BUILD_LOG"
-        echo ""
-        echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
-        echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
     fi
 fi
 

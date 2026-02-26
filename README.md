@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
 - **Build & Run** — Build schemes and launch apps on simulators directly from the terminal
 - **Test with Coverage** — Run tests with color-coded coverage reports, with file-level detail
 - **Scheme Switching** — Save defaults to `.xcbrc` and override per-command with `-s`
-- **Smart Error Parsing** — Extracts compiler, linker, and test errors with file locations and line numbers
+- **Formatted Output** — Pipes xcodebuild through [xcbeautify](https://github.com/cpisciotta/xcbeautify) for readable build and test output
 - **Simulator Management** — Auto-boots simulators, installs and launches your app
 - **Dry Run** — Preview the exact `xcodebuild` commands before executing
 
@@ -120,13 +120,6 @@ xcb test coverage -s MyApp --only MyTests/LoginTests
 xcb test coverage -s MyApp --skip-build
 ```
 
-### View Test Errors
-
-```bash
-# Show errors and failures from the last test run
-xcb test errors -s MyApp
-```
-
 ### Cleanup
 
 ```bash
@@ -194,7 +187,6 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 | `xcb clean` | Clean derived data for a scheme |
 | `xcb test` | Run tests |
 | `xcb test coverage` | Run tests with coverage report |
-| `xcb test errors` | Show errors from last test run |
 | `xcb purge` | Remove xcresult bundles from /tmp |
 
 ### Flags
@@ -218,6 +210,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 
 - macOS with Xcode installed
 - Xcode Command Line Tools (`xcode-select --install`)
+- [xcbeautify](https://github.com/cpisciotta/xcbeautify) (`brew install xcbeautify`)
 
 ## License
 

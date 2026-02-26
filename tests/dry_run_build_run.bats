@@ -18,6 +18,7 @@ teardown() {
     [[ "$out" == *'-workspace "Test.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "TestScheme"'* ]]
     [[ "$out" == *'-destination "platform=iOS Simulator,name=iPhone 16,OS=18.0"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
     [[ "$out" == *'# Then: boot simulator, install app, launch app'* ]]
 }
 
