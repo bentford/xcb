@@ -113,6 +113,19 @@ xcb test coverage -s MyApp --detailed
 xcb test coverage -s MyApp --only MyTests/LoginTests
 ```
 
+### Filter Coverage Targets
+
+```bash
+# Show only targets matching the scheme name
+xcb test coverage -s MyApp --filter-scheme
+
+# Show only targets matching arbitrary text
+xcb test coverage -s MyApp --filter MyModule
+
+# Combine with --skip-build and --detailed
+xcb test coverage --skip-build --filter MyModule --detailed
+```
+
 ### Show Coverage Without Building
 
 ```bash
@@ -204,7 +217,8 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 | `--dry-run` | Show commands without executing |
 | `-a`, `--audible` | Play a sound when the command finishes |
 | `--force` | Skip confirmation prompts |
-| `--filter` | Filter scheme list during selection |
+| `--filter` | Filter by text (scheme selection, coverage) |
+| `--filter-scheme` | Filter coverage targets by scheme name |
 
 ## Requirements
 

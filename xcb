@@ -57,6 +57,7 @@ DETAILED=false
 ONLY_TEST=""
 FORCE=false
 FILTER=""
+FILTER_SCHEME=false
 DRY_RUN=false
 CLEAN=false
 AUDIBLE=false
@@ -96,7 +97,8 @@ usage() {
     echo "  --skip-build           Skip build, use results from last run (test coverage)"
     echo "  --detailed             File-level coverage breakdown (test coverage)"
     echo "  --clean                Clean before building (build actions only)"
-    echo "  --filter <text>        Filter schemes by text (select scheme only)"
+    echo "  --filter <text>        Filter by text (select scheme, test coverage)"
+    echo "  --filter-scheme        Filter coverage targets by scheme name"
     echo "  --dry-run              Show the command without running it"
     echo "  -a, --audible          Play a sound when the command finishes"
     echo "  --force                Skip confirmation (purge only)"
@@ -186,7 +188,7 @@ extract_coverage() {
 format_summary() {
     local json_data="$1"
     local xcresult_path="$2"
-    local filter_scheme="$3"
+    local filter="${3:-}"
 
     if ! command -v jq &> /dev/null; then
         echo -e "${YELLOW}⚠ jq not installed. Install with: brew install jq${NC}"
@@ -195,17 +197,16 @@ format_summary() {
     fi
 
     local targets
-    if [[ -n "$filter_scheme" ]]; then
-        # Filter targets that contain the scheme name
-        targets=$(echo "$json_data" | jq -r --arg scheme "$filter_scheme" '.targets[] | select(.name | contains($scheme)) | .name')
+    if [[ -n "$filter" ]]; then
+        targets=$(echo "$json_data" | jq -r --arg f "$filter" '.targets[] | select(.executableLines > 0) | select(.name | contains($f)) | .name')
+        # Fall back to all targets if filter matches nothing
+        if [[ -z "$targets" ]]; then
+            echo -e "${YELLOW}⚠ No targets matching '$filter', showing all${NC}"
+            targets=$(echo "$json_data" | jq -r '.targets[] | select(.executableLines > 0) | .name')
+        fi
     else
-        targets=$(echo "$json_data" | jq -r '.targets[] | .name')
-    fi
-
-    if [[ -z "$targets" ]]; then
-        echo -e "${YELLOW}⚠ No targets found matching '$filter_scheme'${NC}"
-        echo -e "${YELLOW}Showing all targets instead:${NC}"
-        targets=$(echo "$json_data" | jq -r '.targets[] | .name')
+        # Show all targets with executable lines (excludes empty stubs/headers)
+        targets=$(echo "$json_data" | jq -r '.targets[] | select(.executableLines > 0) | .name')
     fi
 
     echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -256,7 +257,7 @@ format_summary() {
 # Function: Format detailed output with file-level breakdown
 format_detailed() {
     local json_data="$1"
-    local filter_scheme="$2"
+    local filter="${2:-}"
 
     if ! command -v jq &> /dev/null; then
         echo -e "${YELLOW}⚠ Detailed output requires jq. Please install: brew install jq${NC}"
@@ -266,10 +267,15 @@ format_detailed() {
     echo -e "\n${BOLD}📁 File-Level Coverage:${NC}\n"
 
     local files
-    if [[ -n "$filter_scheme" ]]; then
-        files=$(echo "$json_data" | jq -r --arg scheme "$filter_scheme" '.targets[] | select(.name | contains($scheme)) | .files[] | "\(.lineCoverage)|\(.name)|\(.coveredLines)|\(.executableLines)"' | sort -t'|' -k1 -rn)
+    if [[ -n "$filter" ]]; then
+        files=$(echo "$json_data" | jq -r --arg f "$filter" '.targets[] | select(.executableLines > 0) | select(.name | contains($f)) | .files[] | "\(.lineCoverage)|\(.name)|\(.coveredLines)|\(.executableLines)"' | sort -t'|' -k1 -rn)
+        # Fall back to all targets if filter matches nothing
+        if [[ -z "$files" ]]; then
+            files=$(echo "$json_data" | jq -r '.targets[] | select(.executableLines > 0) | .files[] | "\(.lineCoverage)|\(.name)|\(.coveredLines)|\(.executableLines)"' | sort -t'|' -k1 -rn)
+        fi
     else
-        files=$(echo "$json_data" | jq -r '.targets[].files[] | "\(.lineCoverage)|\(.name)|\(.coveredLines)|\(.executableLines)"' | sort -t'|' -k1 -rn)
+        # Show files from all targets with executable lines
+        files=$(echo "$json_data" | jq -r '.targets[] | select(.executableLines > 0) | .files[] | "\(.lineCoverage)|\(.name)|\(.coveredLines)|\(.executableLines)"' | sort -t'|' -k1 -rn)
     fi
 
     echo -e "${BOLD}Top 10 Files (Best Coverage):${NC}"
@@ -365,6 +371,10 @@ while [[ $# -gt 0 ]]; do
         --filter)
             FILTER="$2"
             shift 2
+            ;;
+        --filter-scheme)
+            FILTER_SCHEME=true
+            shift
             ;;
         --clean)
             CLEAN=true
@@ -1072,10 +1082,17 @@ if [[ "$ACTION" == "coverage" ]]; then
     coverage_json=$(extract_coverage "$XCRESULT_PATH")
 
     if [[ -n "$coverage_json" ]]; then
-        format_summary "$coverage_json" "$XCRESULT_PATH" "${SCHEME:-}"
+        coverage_filter=""
+        if [[ "$FILTER_SCHEME" == true ]]; then
+            coverage_filter="${SCHEME:-}"
+        elif [[ -n "${FILTER:-}" ]]; then
+            coverage_filter="$FILTER"
+        fi
+
+        format_summary "$coverage_json" "$XCRESULT_PATH" "$coverage_filter"
 
         if [[ "$DETAILED" == true ]]; then
-            format_detailed "$coverage_json" "${SCHEME:-}"
+            format_detailed "$coverage_json" "$coverage_filter"
         fi
     else
         echo -e "${YELLOW}⚠ No coverage data found in .xcresult${NC}"
