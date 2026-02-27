@@ -120,10 +120,10 @@ xcb test coverage -s MyApp --only MyTests/LoginTests
 xcb test coverage -s MyApp --skip-build
 ```
 
-### Cleanup
+### Cleanup Coverage Files
 
 ```bash
-# Remove xcresult bundles from /tmp
+# Remove coverage files (.xcresult bundles) from /tmp
 xcb purge
 
 # Skip confirmation
@@ -187,7 +187,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 | `xcb clean` | Clean derived data for a scheme |
 | `xcb test` | Run tests |
 | `xcb test coverage` | Run tests with coverage report |
-| `xcb purge` | Remove xcresult bundles from /tmp |
+| `xcb purge` | Remove coverage files from /tmp |
 
 ### Flags
 

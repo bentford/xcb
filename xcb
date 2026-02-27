@@ -84,7 +84,7 @@ usage() {
     echo "  test                   Build and run tests"
     echo "  test coverage          Build and run tests with code coverage report"
     echo ""
-    echo "  purge                  Remove build artifacts from this script"
+    echo "  purge                  Remove coverage files from /tmp"
     echo ""
     echo "Options:"
     echo "  -s, --scheme <name>    Xcode scheme (${SCHEME:-not set, use 'select scheme'})"
