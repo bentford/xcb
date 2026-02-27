@@ -401,13 +401,7 @@ case "$ACTION" in
     build) [[ "$SUB_ACTION" == "run" ]] && ACTION="build-run" ;;
     test)
         case "$SUB_ACTION" in
-            coverage)
-                if [[ "$SKIP_BUILD" == true ]]; then
-                    ACTION="report"
-                else
-                    ACTION="coverage"
-                fi
-                ;;
+            coverage) ACTION="coverage" ;;
             "") ;; # stays "test"
             *)  echo "Error: Unknown test sub-action '$SUB_ACTION'"; usage ;;
         esac
@@ -644,72 +638,49 @@ if [[ "$ACTION" == "purge" ]]; then
 fi
 
 # Warn if --only is used with non-test actions
-if [[ -n "$ONLY_TEST" && "$ACTION" != "test" && "$ACTION" != "coverage" ]]; then
+if [[ -n "$ONLY_TEST" && "$ACTION" != "test" && "$ACTION" != "coverage" ]] || \
+   [[ -n "$ONLY_TEST" && "$SKIP_BUILD" == true ]]; then
     echo -e "${YELLOW}⚠ --only is ignored in $ACTION action${NC}"
     ONLY_TEST=""
 fi
 
-if [[ "$ACTION" == "report" ]]; then
-    echo -e "${BLUE}🔍 Searching for most recent .xcresult...${NC}"
-    XCRESULT_PATH=$(find_most_recent_xcresult "${SCHEME:-}")
-    if [[ -z "$XCRESULT_PATH" ]]; then
-        echo -e "${RED}Error: No .xcresult found in current directory or DerivedData${NC}"
-        echo -e "${YELLOW}Tip: Run tests with coverage first${NC}"
-        exit 1
+if [[ "$ACTION" == "coverage" && "$SKIP_BUILD" == true ]]; then
+    if [[ "$DRY_RUN" != true ]]; then
+        echo -e "${BLUE}🔍 Searching for most recent .xcresult...${NC}"
+        XCRESULT_PATH=$(find_most_recent_xcresult "${SCHEME:-}")
+        if [[ -z "$XCRESULT_PATH" ]]; then
+            echo -e "${RED}Error: No .xcresult found in current directory or DerivedData${NC}"
+            echo -e "${YELLOW}Tip: Run tests with coverage first${NC}"
+            exit 1
+        fi
+        echo -e "${GREEN}✓ Found: $(basename "$XCRESULT_PATH")${NC}"
     fi
-    echo -e "${GREEN}✓ Found: $(basename "$XCRESULT_PATH")${NC}"
 elif [[ -z "${SCHEME:-}" ]]; then
     echo -e "${RED}Error: Scheme is required${NC}"
     echo -e "${YELLOW}Tip: Run '$0 select scheme' or pass -s <scheme>${NC}"
     exit 1
 fi
 
-# Validate required settings for actions that need a simulator
-if [[ -z "$WORKSPACE" ]]; then
-    echo -e "${RED}Error: Workspace is not set${NC}"
-    echo -e "${YELLOW}Tip: Run '$0 select workspace' or pass -w <workspace>${NC}"
-    exit 1
-fi
-if [[ -z "$IPHONE_NAME" ]]; then
-    echo -e "${RED}Error: iPhone simulator is not set${NC}"
-    echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -i <name> -o <version>${NC}"
-    exit 1
-fi
-if [[ -z "$OS_VERSION" ]]; then
-    echo -e "${RED}Error: iOS version is not set${NC}"
-    echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -o <version>${NC}"
-    exit 1
-fi
-
-# Build destination string
-DESTINATION="platform=iOS Simulator,name=${IPHONE_NAME},OS=${OS_VERSION}"
-
-# Report action - just show coverage from existing xcresult
-if [[ "$ACTION" == "report" ]]; then
-    echo "📊 Coverage report for: $(basename "$XCRESULT_PATH")"
-    if [[ -n "${SCHEME:-}" ]]; then
-        echo "   Filter: $SCHEME"
+if [[ "$SKIP_BUILD" != true ]]; then
+    # Validate required settings for actions that need a simulator
+    if [[ -z "$WORKSPACE" ]]; then
+        echo -e "${RED}Error: Workspace is not set${NC}"
+        echo -e "${YELLOW}Tip: Run '$0 select workspace' or pass -w <workspace>${NC}"
+        exit 1
     fi
-    echo ""
-
-    coverage_json=$(extract_coverage "$XCRESULT_PATH")
-
-    if [[ -n "$coverage_json" ]]; then
-        format_summary "$coverage_json" "$XCRESULT_PATH" "${SCHEME:-}"
-
-        if [[ "$DETAILED" == true ]]; then
-            format_detailed "$coverage_json" "${SCHEME:-}"
-        fi
-    else
-        echo -e "${YELLOW}⚠ No coverage data found in .xcresult${NC}"
-        echo -e "${YELLOW}Make sure tests were run with code coverage enabled.${NC}"
+    if [[ -z "$IPHONE_NAME" ]]; then
+        echo -e "${RED}Error: iPhone simulator is not set${NC}"
+        echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -i <name> -o <version>${NC}"
+        exit 1
+    fi
+    if [[ -z "$OS_VERSION" ]]; then
+        echo -e "${RED}Error: iOS version is not set${NC}"
+        echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -o <version>${NC}"
         exit 1
     fi
 
-    echo ""
-    echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
-    echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
-    exit 0
+    # Build destination string
+    DESTINATION="platform=iOS Simulator,name=${IPHONE_NAME},OS=${OS_VERSION}"
 fi
 
 play_sound() {
@@ -1013,6 +984,11 @@ if [[ "$ACTION" == "run" ]]; then
     exit 0
 fi
 
+if [[ "$DRY_RUN" == true && "$SKIP_BUILD" == true ]]; then
+    echo -e "${YELLOW}xcrun xccov view --report --json <most-recent>.xcresult${NC}"
+    exit 0
+fi
+
 echo "🔨 Building and testing scheme: $SCHEME"
 echo "   Workspace: $WORKSPACE"
 echo "   Simulator: $IPHONE_NAME (iOS $OS_VERSION)"
@@ -1043,50 +1019,52 @@ if [[ "$DRY_RUN" == true ]]; then
     exit 0
 fi
 
-require_xcbeautify
+[[ "$SKIP_BUILD" != true ]] && require_xcbeautify
 
 if [[ "$ACTION" == "coverage" ]]; then
-    # Generate result bundle in /tmp — DerivedData will eventually clean its own copies,
-    # and /tmp avoids cluttering the project directory
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    XCRESULT_PATH="/tmp/${SCHEME}-Coverage-${TIMESTAMP}.xcresult"
-    BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
-    echo "   xcresult: $XCRESULT_PATH"
-    echo ""
-
-    if [[ -n "$ONLY_TESTING_ARG" ]]; then
-        xcodebuild test \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -destination "$DESTINATION" \
-            -enableCodeCoverage YES \
-            -resultBundlePath "$XCRESULT_PATH" \
-            $ONLY_TESTING_ARG \
-            2>&1 | tee "$BUILD_LOG" | xcbeautify
-    else
-        xcodebuild test \
-            -workspace "$WORKSPACE" \
-            -scheme "$SCHEME" \
-            -destination "$DESTINATION" \
-            -enableCodeCoverage YES \
-            -resultBundlePath "$XCRESULT_PATH" \
-            2>&1 | tee "$BUILD_LOG" | xcbeautify
-    fi
-    BUILD_STATUS=${PIPESTATUS[0]}
-
-    if [[ $BUILD_STATUS -eq 0 ]]; then
-        show_error_summary "$BUILD_LOG"
-        rm -f "$BUILD_LOG"
-    elif [[ $BUILD_STATUS -eq 65 ]]; then
-        show_error_summary "$BUILD_LOG" true
-        rm -f "$BUILD_LOG"
+    if [[ "$SKIP_BUILD" != true ]]; then
+        # Generate result bundle in /tmp — DerivedData will eventually clean its own copies,
+        # and /tmp avoids cluttering the project directory
+        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+        XCRESULT_PATH="/tmp/${SCHEME}-Coverage-${TIMESTAMP}.xcresult"
+        BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
+        echo "   xcresult: $XCRESULT_PATH"
         echo ""
-        echo -e "${RED}❌ Tests failed${NC}"
-    else
-        show_error_summary "$BUILD_LOG"
-        rm -f "$BUILD_LOG"
-        echo ""
-        echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
+
+        if [[ -n "$ONLY_TESTING_ARG" ]]; then
+            xcodebuild test \
+                -workspace "$WORKSPACE" \
+                -scheme "$SCHEME" \
+                -destination "$DESTINATION" \
+                -enableCodeCoverage YES \
+                -resultBundlePath "$XCRESULT_PATH" \
+                $ONLY_TESTING_ARG \
+                2>&1 | tee "$BUILD_LOG" | xcbeautify
+        else
+            xcodebuild test \
+                -workspace "$WORKSPACE" \
+                -scheme "$SCHEME" \
+                -destination "$DESTINATION" \
+                -enableCodeCoverage YES \
+                -resultBundlePath "$XCRESULT_PATH" \
+                2>&1 | tee "$BUILD_LOG" | xcbeautify
+        fi
+        BUILD_STATUS=${PIPESTATUS[0]}
+
+        if [[ $BUILD_STATUS -eq 0 ]]; then
+            show_error_summary "$BUILD_LOG"
+            rm -f "$BUILD_LOG"
+        elif [[ $BUILD_STATUS -eq 65 ]]; then
+            show_error_summary "$BUILD_LOG" true
+            rm -f "$BUILD_LOG"
+            echo ""
+            echo -e "${RED}❌ Tests failed${NC}"
+        else
+            show_error_summary "$BUILD_LOG"
+            rm -f "$BUILD_LOG"
+            echo ""
+            echo -e "${RED}❌ Build failed (exit code: $BUILD_STATUS)${NC}"
+        fi
     fi
 
     # Extract and display coverage report
@@ -1094,19 +1072,23 @@ if [[ "$ACTION" == "coverage" ]]; then
     coverage_json=$(extract_coverage "$XCRESULT_PATH")
 
     if [[ -n "$coverage_json" ]]; then
-        format_summary "$coverage_json" "$XCRESULT_PATH" "$SCHEME"
+        format_summary "$coverage_json" "$XCRESULT_PATH" "${SCHEME:-}"
 
         if [[ "$DETAILED" == true ]]; then
-            format_detailed "$coverage_json" "$SCHEME"
+            format_detailed "$coverage_json" "${SCHEME:-}"
         fi
     else
         echo -e "${YELLOW}⚠ No coverage data found in .xcresult${NC}"
         echo -e "${YELLOW}Make sure tests were run with code coverage enabled.${NC}"
+        if [[ "$SKIP_BUILD" == true ]]; then
+            exit 1
+        fi
     fi
 
     echo ""
     echo -e "${CYAN}📁 Full results:${NC} $XCRESULT_PATH"
     echo -e "${CYAN}   View in Xcode:${NC} open $XCRESULT_PATH"
+    [[ "$SKIP_BUILD" == true ]] && exit 0
 else
     # Test action - simple test run without coverage
     BUILD_LOG="/tmp/xcodebuild-${SCHEME}-$(date +%Y%m%d_%H%M%S).log"

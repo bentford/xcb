@@ -32,6 +32,14 @@ teardown() {
     [[ "$out" == *'-resultBundlePath "/tmp/TestScheme-Coverage-<timestamp>.xcresult"'* ]]
 }
 
+@test "test coverage --skip-build --dry-run shows xccov command" {
+    run "$XCB" test coverage --skip-build --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcrun xccov view --report --json <most-recent>.xcresult'* ]]
+}
+
 assert_success() {
     if [[ "$status" -ne 0 ]]; then
         echo "Expected exit 0, got $status"
