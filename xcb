@@ -23,13 +23,17 @@ require_xcbeautify() {
     fi
 }
 
-# Re-render raw xcodebuild log through xcbeautify --quiet to show warnings and errors.
+# Show a post-build summary of warnings, errors, and (optionally) test failures.
 # Pass "true" as $2 to include test results in the summary.
 show_error_summary() {
     local build_log="$1"
     local include_tests="${2:-false}"
     local summary
-    if [[ "$include_tests" == true ]]; then
+    if [[ "$include_tests" == true && "$GREP_ERRORS" == true ]]; then
+        # Extract only failure lines from the raw log.
+        # ✘ = Swift Testing failures; ": error: -[" = XCTest assertion failures
+        summary=$(grep -E '✘ |: error: -\[' "$build_log" | head -50)
+    elif [[ "$include_tests" == true ]]; then
         summary=$(xcbeautify --quiet --is-ci < "$build_log")
     else
         summary=$(xcbeautify --quiet < "$build_log")
@@ -37,8 +41,6 @@ show_error_summary() {
     summary=$(echo "$summary" | sed '/^[[:space:]]*$/d')
     if [[ -n "$summary" ]]; then
         echo ""
-        echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${BOLD}Summary${NC}"
         echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo "$summary"
         echo -e "${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -61,6 +63,7 @@ FILTER_SCHEME=false
 DRY_RUN=false
 CLEAN=false
 AUDIBLE=false
+GREP_ERRORS=false
 
 # Load saved defaults from .xcbrc
 XCB_CONFIG=".xcbrc"
@@ -101,6 +104,7 @@ usage() {
     echo "  --filter-scheme        Filter coverage targets by scheme name"
     echo "  --dry-run              Show the command without running it"
     echo "  -a, --audible          Play a sound when the command finishes"
+    echo "  --grep-errors          Grep raw log for errors instead of using xcbeautify"
     echo "  --force                Skip confirmation (purge only)"
     echo "  -h, --help             Show this help"
     echo ""
@@ -382,6 +386,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -a|--audible)
             AUDIBLE=true
+            shift
+            ;;
+        --grep-errors)
+            GREP_ERRORS=true
             shift
             ;;
         --dry-run)
