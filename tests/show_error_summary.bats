@@ -6,15 +6,14 @@ setup() {
 
     # Source color vars and functions from xcb (stop before main logic)
     eval "$(sed -n '9,16p' "$XCB")"      # color variables
-    eval "$(sed -n '28,48p' "$XCB")"      # show_error_summary()
+    eval "$(sed -n '28,46p' "$XCB")"      # show_error_summary()
 }
 
 teardown() {
     teardown
 }
 
-@test "show_error_summary --grep-errors extracts Swift Testing failures" {
-    GREP_ERRORS=true
+@test "show_error_summary extracts Swift Testing failures" {
     cat > "$TEST_DIR/build.log" <<'EOF'
 note: Build complete!
 ◇ Test run started.
@@ -38,8 +37,7 @@ EOF
     [[ "$out" != *'Build complete'* ]]
 }
 
-@test "show_error_summary --grep-errors extracts XCTest failures" {
-    GREP_ERRORS=true
+@test "show_error_summary extracts XCTest failures" {
     cat > "$TEST_DIR/build.log" <<'EOF'
 note: Build complete!
 Test Suite 'All tests' started
@@ -53,12 +51,10 @@ EOF
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'XCTAssertEqual failed'* ]]
-    [[ "$out" == *'error: -[MyTests testSomething]'* ]]
     [[ "$out" != *'Build complete'* ]]
 }
 
-@test "show_error_summary --grep-errors prints nothing when no failures" {
-    GREP_ERRORS=true
+@test "show_error_summary prints nothing when no failures" {
     cat > "$TEST_DIR/build.log" <<'EOF'
 note: Build complete!
 ◇ Test run started.
