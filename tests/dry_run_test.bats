@@ -18,7 +18,7 @@ teardown() {
     [[ "$out" == *'-workspace "Test.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "TestScheme"'* ]]
     [[ "$out" == *'-destination "platform=iOS Simulator,name=iPhone 16,OS=18.0"'* ]]
-    [[ "$out" == *'-resultBundlePath "/tmp/TestScheme-Test-<timestamp>.xcresult"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
 }
 
 @test "test --dry-run does not include enableCodeCoverage" {

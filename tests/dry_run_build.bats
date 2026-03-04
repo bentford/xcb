@@ -18,6 +18,7 @@ teardown() {
     [[ "$out" == *'-workspace "Test.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "TestScheme"'* ]]
     [[ "$out" == *'-destination "platform=iOS Simulator,name=iPhone 16,OS=18.0"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
 }
 
 @test "build --dry-run does not include clean without --clean" {

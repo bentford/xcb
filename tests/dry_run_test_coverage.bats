@@ -19,6 +19,7 @@ teardown() {
     [[ "$out" == *'-scheme "TestScheme"'* ]]
     [[ "$out" == *'-enableCodeCoverage YES'* ]]
     [[ "$out" == *'-resultBundlePath "/tmp/TestScheme-Coverage-<timestamp>.xcresult"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
 }
 
 @test "test coverage --only --dry-run includes both coverage and only-testing" {
@@ -29,6 +30,14 @@ teardown() {
     [[ "$out" == *'-enableCodeCoverage YES'* ]]
     [[ "$out" == *'-only-testing:MyTests/MyTestClass'* ]]
     [[ "$out" == *'-resultBundlePath "/tmp/TestScheme-Coverage-<timestamp>.xcresult"'* ]]
+}
+
+@test "test coverage --skip-build --dry-run shows xccov command" {
+    run "$XCB" test coverage --skip-build --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcrun xccov view --report --json <most-recent>.xcresult'* ]]
 }
 
 assert_success() {

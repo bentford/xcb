@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
 - **Build & Run** — Build schemes and launch apps on simulators directly from the terminal
 - **Test with Coverage** — Run tests with color-coded coverage reports, with file-level detail
 - **Scheme Switching** — Save defaults to `.xcbrc` and override per-command with `-s`
-- **Smart Error Parsing** — Extracts compiler, linker, and test errors with file locations and line numbers
+- **Formatted Output** — Pipes xcodebuild through [xcbeautify](https://github.com/cpisciotta/xcbeautify) for readable build and test output
 - **Simulator Management** — Auto-boots simulators, installs and launches your app
 - **Dry Run** — Preview the exact `xcodebuild` commands before executing
 
@@ -113,6 +113,19 @@ xcb test coverage -s MyApp --detailed
 xcb test coverage -s MyApp --only MyTests/LoginTests
 ```
 
+### Filter Coverage Targets
+
+```bash
+# Show only targets matching the scheme name
+xcb test coverage -s MyApp --filter-scheme
+
+# Show only targets matching arbitrary text
+xcb test coverage -s MyApp --filter MyModule
+
+# Combine with --skip-build and --detailed
+xcb test coverage --skip-build --filter MyModule --detailed
+```
+
 ### Show Coverage Without Building
 
 ```bash
@@ -120,17 +133,10 @@ xcb test coverage -s MyApp --only MyTests/LoginTests
 xcb test coverage -s MyApp --skip-build
 ```
 
-### View Test Errors
+### Cleanup Coverage Files
 
 ```bash
-# Show errors and failures from the last test run
-xcb test errors -s MyApp
-```
-
-### Cleanup
-
-```bash
-# Remove xcresult bundles from /tmp
+# Remove coverage files (.xcresult bundles) from /tmp
 xcb purge
 
 # Skip confirmation
@@ -194,8 +200,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 | `xcb clean` | Clean derived data for a scheme |
 | `xcb test` | Run tests |
 | `xcb test coverage` | Run tests with coverage report |
-| `xcb test errors` | Show errors from last test run |
-| `xcb purge` | Remove xcresult bundles from /tmp |
+| `xcb purge` | Remove coverage files from /tmp |
 
 ### Flags
 
@@ -212,12 +217,14 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 | `--dry-run` | Show commands without executing |
 | `-a`, `--audible` | Play a sound when the command finishes |
 | `--force` | Skip confirmation prompts |
-| `--filter` | Filter scheme list during selection |
+| `--filter` | Filter by text (scheme selection, coverage) |
+| `--filter-scheme` | Filter coverage targets by scheme name |
 
 ## Requirements
 
 - macOS with Xcode installed
 - Xcode Command Line Tools (`xcode-select --install`)
+- [xcbeautify](https://github.com/cpisciotta/xcbeautify) (`brew install xcbeautify`)
 
 ## License
 
