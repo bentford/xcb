@@ -2,8 +2,11 @@
 
 XCB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/xcb"
 
-# Standard test arguments used by most tests
-STD_ARGS=(-s TestScheme -w Test.xcworkspace -i "iPhone 16" -o 18.0)
+# Standard test arguments used by most tests (simulator, the default)
+STD_ARGS=(-s TestScheme -w Test.xcworkspace --simulator-id "TEST-SIM-UUID-1234")
+
+# Standard test arguments for device destination
+STD_DEVICE_ARGS=(-s TestScheme -w Test.xcworkspace -d device --device-id "TEST-UUID-1234")
 
 setup() {
     TEST_DIR="$(mktemp -d)"

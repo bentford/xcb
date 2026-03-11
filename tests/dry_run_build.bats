@@ -17,7 +17,7 @@ teardown() {
     [[ "$out" == *'xcodebuild build \'* ]]
     [[ "$out" == *'-workspace "Test.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "TestScheme"'* ]]
-    [[ "$out" == *'-destination "platform=iOS Simulator,name=iPhone 16,OS=18.0"'* ]]
+    [[ "$out" == *'-destination "platform=iOS Simulator,id=TEST-SIM-UUID-1234"'* ]]
     [[ "$out" == *'xcbeautify'* ]]
 }
 
@@ -27,6 +27,16 @@ teardown() {
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" != *'xcodebuild clean'* ]]
+}
+
+@test "build --dry-run with device destination outputs device destination" {
+    run "$XCB" build "${STD_DEVICE_ARGS[@]}" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild build \'* ]]
+    [[ "$out" == *'-destination "platform=iOS,id=TEST-UUID-1234"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
 }
 
 @test "build --clean --dry-run outputs clean before build" {
