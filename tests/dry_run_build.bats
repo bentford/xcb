@@ -29,6 +29,16 @@ teardown() {
     [[ "$out" != *'xcodebuild clean'* ]]
 }
 
+@test "build --dry-run with device destination outputs device destination" {
+    run "$XCB" build "${STD_DEVICE_ARGS[@]}" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild build \'* ]]
+    [[ "$out" == *'-destination "platform=iOS,id=TEST-UUID-1234"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
+}
+
 @test "build --clean --dry-run outputs clean before build" {
     run "$XCB" build "${STD_ARGS[@]}" --clean --dry-run
     assert_success

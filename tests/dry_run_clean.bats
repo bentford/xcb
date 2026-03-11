@@ -20,6 +20,15 @@ teardown() {
     [[ "$out" == *'-destination "platform=iOS Simulator,name=iPhone 16,OS=18.0"'* ]]
 }
 
+@test "clean --dry-run with device destination outputs device destination" {
+    run "$XCB" clean "${STD_DEVICE_ARGS[@]}" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild clean \'* ]]
+    [[ "$out" == *'-destination "platform=iOS,id=TEST-UUID-1234"'* ]]
+}
+
 assert_success() {
     if [[ "$status" -ne 0 ]]; then
         echo "Expected exit 0, got $status"

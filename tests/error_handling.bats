@@ -96,6 +96,39 @@ teardown() {
     [[ "$out" == *'iOS version is not set'* ]]
 }
 
+# --- Device destination errors ---
+
+@test "missing device-id with device destination prints error and exits 1" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace -d device --dry-run
+    [[ "$status" -eq 1 ]]
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'Device identifier is not set'* ]]
+}
+
+@test "invalid destination type prints error and exits 1" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace -d foobar --dry-run
+    [[ "$status" -eq 1 ]]
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"Unknown destination type"* ]]
+}
+
+@test ".xcbrc with device config loads correctly" {
+    cat > .xcbrc <<'CONF'
+WORKSPACE="Saved.xcworkspace"
+SCHEME="SavedScheme"
+DESTINATION_TYPE="device"
+DEVICE_ID="ABCD-1234-EFGH-5678"
+DEVICE_NAME="Test iPhone"
+CONF
+    run "$XCB" clean --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'-destination "platform=iOS,id=ABCD-1234-EFGH-5678"'* ]]
+}
+
 # --- Help flags ---
 
 @test "--help prints usage and exits 1" {

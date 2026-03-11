@@ -19,6 +19,16 @@ teardown() {
     [[ "$out" == *'xcrun simctl launch'* ]]
 }
 
+@test "run --dry-run with device destination outputs devicectl commands" {
+    run "$XCB" run "${STD_DEVICE_ARGS[@]}" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcrun devicectl device install app'* ]]
+    [[ "$out" == *'xcrun devicectl device process launch'* ]]
+    [[ "$out" != *'simctl'* ]]
+}
+
 assert_success() {
     if [[ "$status" -ne 0 ]]; then
         echo "Expected exit 0, got $status"
