@@ -80,12 +80,12 @@ teardown() {
     [[ "$out" == *'Workspace is not set'* ]]
 }
 
-@test "missing iphone prints error and exits 1" {
+@test "missing simulator prints error and exits 1" {
     run "$XCB" clean -s TestScheme -w Test.xcworkspace -o 18.0 --dry-run
     [[ "$status" -eq 1 ]]
     local out
     out=$(echo "$output" | strip_ansi)
-    [[ "$out" == *'iPhone simulator is not set'* ]]
+    [[ "$out" == *'Simulator is not set'* ]]
 }
 
 @test "missing os-version prints error and exits 1" {
@@ -159,7 +159,7 @@ CONF
     cat > .xcbrc <<'CONF'
 WORKSPACE="Saved.xcworkspace"
 SCHEME="SavedScheme"
-IPHONE_NAME="iPhone 15"
+SIMULATOR_NAME="iPhone 15"
 OS_VERSION="17.0"
 CONF
     run "$XCB" clean --dry-run
@@ -175,7 +175,7 @@ CONF
     cat > .xcbrc <<'CONF'
 WORKSPACE="Saved.xcworkspace"
 SCHEME="SavedScheme"
-IPHONE_NAME="iPhone 15"
+SIMULATOR_NAME="iPhone 15"
 OS_VERSION="17.0"
 CONF
     run "$XCB" clean -s OverrideScheme -w Override.xcworkspace --dry-run
@@ -184,7 +184,7 @@ CONF
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'-workspace "Override.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "OverrideScheme"'* ]]
-    # iphone and os-version should still come from .xcbrc
+    # simulator and os-version should still come from .xcbrc
     [[ "$out" == *'name=iPhone 15,OS=17.0'* ]]
 }
 

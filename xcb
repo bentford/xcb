@@ -47,7 +47,8 @@ show_error_summary() {
 
 # Default values (set via 'select' commands or CLI flags; saved in .xcbrc)
 WORKSPACE=""
-IPHONE_NAME=""
+SIMULATOR_NAME=""
+SIMULATOR_ID=""       # simctl UUID for simulator
 OS_VERSION=""
 SCHEME=""
 DESTINATION_TYPE=""   # "simulator" or "device"
@@ -79,7 +80,7 @@ usage() {
     echo "  select workspace       Pick default Xcode workspace"
     echo "  select scheme          Pick default scheme from workspace"
     echo "  select destination     Pick default destination (simulator or device)"
-    echo "  select iphone          Pick default iPhone simulator"
+    echo "  select simulator       Pick default simulator"
     echo "  select device          Pick default physical device"
     echo "  setup                  Select workspace, scheme, and destination"
     echo ""
@@ -97,8 +98,8 @@ usage() {
     echo "  -s, --scheme <name>    Xcode scheme (${SCHEME:-not set, use 'select scheme'})"
     echo "  -w, --workspace <path> Xcode workspace (${WORKSPACE:-not set, use 'select workspace'})"
     echo "  -d, --destination <type> simulator or device (${DESTINATION_TYPE:-not set, use 'select destination'})"
-    echo "  -i, --iphone <name>    iPhone simulator name (${IPHONE_NAME:-not set, use 'select iphone'})"
-    echo "  -o, --os-version <ver> iOS version (${OS_VERSION:-not set, use 'select iphone'})"
+    echo "  -i, --simulator <name> Simulator name (${SIMULATOR_NAME:-not set, use 'select simulator'})"
+    echo "  -o, --os-version <ver> iOS version (${OS_VERSION:-not set, use 'select simulator'})"
     echo "  --device-id <uuid>     Physical device identifier (${DEVICE_ID:-not set, use 'select device'})"
     echo "  --only <test>          Run specific test(s) (test actions only)"
     echo "                         Format: TestTarget/TestClass[/testMethod]"
@@ -115,7 +116,7 @@ usage() {
     echo "Examples:"
     echo "  $0 select workspace            Pick a default workspace"
     echo "  $0 select scheme              Pick a default scheme"
-    echo "  $0 select iphone              Pick a default simulator"
+    echo "  $0 select simulator           Pick a default simulator"
     echo "  $0 test -s MyScheme"
     echo "  $0 test -s MyScheme --only MyTests/MyTestClass"
     echo "  $0 test coverage -s MyScheme --detailed"
@@ -333,7 +334,7 @@ if [[ $# -gt 0 && "$1" != -* ]]; then
                         fi
                         ;;
                     select)
-                        if [[ "$1" == "workspace" || "$1" == "scheme" || "$1" == "iphone" || "$1" == "destination" || "$1" == "device" ]]; then
+                        if [[ "$1" == "workspace" || "$1" == "scheme" || "$1" == "simulator" || "$1" == "destination" || "$1" == "device" ]]; then
                             SUB_ACTION="$1"; shift
                         else
                             echo "Error: Unknown select sub-action '$1'"; usage
@@ -360,8 +361,8 @@ while [[ $# -gt 0 ]]; do
             WORKSPACE="$2"
             shift 2
             ;;
-        -i|--iphone)
-            IPHONE_NAME="$2"
+        -i|--simulator)
+            SIMULATOR_NAME="$2"
             shift 2
             ;;
         -o|--os-version)
@@ -434,7 +435,7 @@ case "$ACTION" in
         ;;
     select)
         if [[ -z "$SUB_ACTION" ]]; then
-            echo "Error: 'select' requires a sub-action (scheme or iphone)"; usage
+            echo "Error: 'select' requires a sub-action (scheme or simulator)"; usage
         fi
         ;;
     clean|run|purge|setup) ;;
@@ -580,7 +581,7 @@ if [[ "$ACTION" == "select" ]]; then
 
         # Chain to the appropriate device/simulator picker
         if [[ "$selected_dest" == "simulator" ]]; then
-            "$0" select iphone || exit $?
+            "$0" select simulator || exit $?
         else
             "$0" select device || exit $?
         fi
@@ -659,10 +660,10 @@ if [[ "$ACTION" == "select" ]]; then
 
         echo -e "${GREEN}Default device set to: ${BOLD}$selected_name${NC} ${GREEN}(${selected_model}, iOS $selected_os)${NC}"
 
-    elif [[ "$SUB_ACTION" == "iphone" ]]; then
-        echo -e "${BLUE}Fetching available iPhone simulators...${NC}"
+    elif [[ "$SUB_ACTION" == "simulator" ]]; then
+        echo -e "${BLUE}Fetching available simulators...${NC}"
 
-        # Parse simctl output to get device name + OS version pairs
+        # Parse simctl output to get device name, UUID, and OS version
         # Section headers look like: "-- iOS 26.2 --"
         # Device lines look like:   "    iPhone 17 (UUID) (Booted)"
         simulators=()
@@ -670,25 +671,25 @@ if [[ "$ACTION" == "select" ]]; then
         while IFS= read -r line; do
             if [[ "$line" =~ ^--\ iOS\ (.+)\ --$ ]]; then
                 current_os="${BASH_REMATCH[1]}"
-            elif [[ "$line" =~ ^[[:space:]]+iPhone ]]; then
-                name=$(echo "$line" | sed 's/^[[:space:]]*//' | sed 's/ ([A-F0-9-]*)//' | sed 's/ (Booted)//' | sed 's/ (Shutdown)//' | sed 's/[[:space:]]*$//')
-                simulators+=("${name}|${current_os}")
+            elif [[ "$line" =~ ^[[:space:]]+(.+)\ \(([A-F0-9-]{36})\) ]]; then
+                name="${BASH_REMATCH[1]}"
+                uuid="${BASH_REMATCH[2]}"
+                simulators+=("${name}|${uuid}|${current_os}")
             fi
         done < <(xcrun simctl list devices available)
 
         if [[ ${#simulators[@]} -eq 0 ]]; then
-            echo -e "${RED}Error: No iPhone simulators found${NC}"
+            echo -e "${RED}Error: No simulators found${NC}"
             exit 1
         fi
 
         echo ""
-        echo -e "${BOLD}Available iPhone simulators:${NC}"
+        echo -e "${BOLD}Available simulators:${NC}"
         i=1
         for entry in "${simulators[@]}"; do
-            sim_name="${entry%%|*}"
-            sim_os="${entry##*|}"
+            IFS='|' read -r sim_name sim_uuid sim_os <<< "$entry"
             current_marker=""
-            if [[ "$sim_name" == "${IPHONE_NAME:-}" && "$sim_os" == "${OS_VERSION:-}" ]]; then
+            if [[ "$sim_uuid" == "${SIMULATOR_ID:-}" ]]; then
                 current_marker=" ${GREEN}(current)${NC}"
             fi
             echo -e "  $i) ${sim_name} (iOS ${sim_os})${current_marker}"
@@ -706,14 +707,20 @@ if [[ "$ACTION" == "select" ]]; then
         fi
 
         selected="${simulators[$((choice - 1))]}"
-        selected_name="${selected%%|*}"
-        selected_os="${selected##*|}"
+        IFS='|' read -r selected_name selected_id selected_os <<< "$selected"
 
-        # Write or update IPHONE_NAME in config file
-        if [[ -f "$XCB_CONFIG" ]] && grep -q '^IPHONE_NAME=' "$XCB_CONFIG"; then
-            sed -i '' "s/^IPHONE_NAME=.*/IPHONE_NAME=\"$selected_name\"/" "$XCB_CONFIG"
+        # Write or update SIMULATOR_NAME in config file
+        if [[ -f "$XCB_CONFIG" ]] && grep -q '^SIMULATOR_NAME=' "$XCB_CONFIG"; then
+            sed -i '' "s/^SIMULATOR_NAME=.*/SIMULATOR_NAME=\"$selected_name\"/" "$XCB_CONFIG"
         else
-            echo "IPHONE_NAME=\"$selected_name\"" >> "$XCB_CONFIG"
+            echo "SIMULATOR_NAME=\"$selected_name\"" >> "$XCB_CONFIG"
+        fi
+
+        # Write or update SIMULATOR_ID in config file
+        if [[ -f "$XCB_CONFIG" ]] && grep -q '^SIMULATOR_ID=' "$XCB_CONFIG"; then
+            sed -i '' "s/^SIMULATOR_ID=.*/SIMULATOR_ID=\"$selected_id\"/" "$XCB_CONFIG"
+        else
+            echo "SIMULATOR_ID=\"$selected_id\"" >> "$XCB_CONFIG"
         fi
 
         # Write or update OS_VERSION in config file
@@ -823,17 +830,19 @@ if [[ "$SKIP_BUILD" != true ]]; then
 
     # Build destination string based on destination type
     if [[ "$DESTINATION_TYPE" == "simulator" ]]; then
-        if [[ -z "$IPHONE_NAME" ]]; then
-            echo -e "${RED}Error: iPhone simulator is not set${NC}"
-            echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -i <name> -o <version>${NC}"
+        if [[ -n "$SIMULATOR_ID" ]]; then
+            DESTINATION="platform=iOS Simulator,id=${SIMULATOR_ID}"
+        elif [[ -n "$SIMULATOR_NAME" && -n "$OS_VERSION" ]]; then
+            DESTINATION="platform=iOS Simulator,name=${SIMULATOR_NAME},OS=${OS_VERSION}"
+        elif [[ -z "$SIMULATOR_NAME" && -z "$SIMULATOR_ID" ]]; then
+            echo -e "${RED}Error: Simulator is not set${NC}"
+            echo -e "${YELLOW}Tip: Run '$0 select simulator' or pass -i <name> -o <version>${NC}"
             exit 1
-        fi
-        if [[ -z "$OS_VERSION" ]]; then
+        else
             echo -e "${RED}Error: iOS version is not set${NC}"
-            echo -e "${YELLOW}Tip: Run '$0 select iphone' or pass -o <version>${NC}"
+            echo -e "${YELLOW}Tip: Run '$0 select simulator' or pass -o <version>${NC}"
             exit 1
         fi
-        DESTINATION="platform=iOS Simulator,name=${IPHONE_NAME},OS=${OS_VERSION}"
     elif [[ "$DESTINATION_TYPE" == "device" ]]; then
         if [[ -z "$DEVICE_ID" ]]; then
             echo -e "${RED}Error: Device identifier is not set${NC}"
@@ -871,7 +880,7 @@ if [[ "$ACTION" == "clean" ]]; then
     if [[ "$DESTINATION_TYPE" == "device" ]]; then
         echo "   Destination: ${DEVICE_NAME:-$DEVICE_ID} device"
     else
-        echo "   Destination: $IPHONE_NAME simulator (iOS $OS_VERSION)"
+        echo "   Destination: ${SIMULATOR_NAME:-$SIMULATOR_ID} simulator (iOS $OS_VERSION)"
     fi
     echo ""
 
@@ -907,7 +916,7 @@ if [[ "$ACTION" == "build" ]]; then
     if [[ "$DESTINATION_TYPE" == "device" ]]; then
         echo "   Destination: ${DEVICE_NAME:-$DEVICE_ID} device"
     else
-        echo "   Destination: $IPHONE_NAME simulator (iOS $OS_VERSION)"
+        echo "   Destination: ${SIMULATOR_NAME:-$SIMULATOR_ID} simulator (iOS $OS_VERSION)"
     fi
     if [[ "$CLEAN" == true ]]; then
         echo "   Clean: yes"
@@ -979,7 +988,7 @@ if [[ "$ACTION" == "build-run" ]]; then
     if [[ "$DESTINATION_TYPE" == "device" ]]; then
         echo "   Destination: ${DEVICE_NAME:-$DEVICE_ID} device"
     else
-        echo "   Destination: $IPHONE_NAME simulator (iOS $OS_VERSION)"
+        echo "   Destination: ${SIMULATOR_NAME:-$SIMULATOR_ID} simulator (iOS $OS_VERSION)"
     fi
     if [[ "$CLEAN" == true ]]; then
         echo "   Clean: yes"
@@ -1080,10 +1089,14 @@ if [[ "$ACTION" == "build-run" ]]; then
         fi
     else
         # Boot simulator if needed
-        SIM_DEVICE_ID=$(xcrun simctl list devices available | grep -F "    $IPHONE_NAME (" | grep -oE '[A-F0-9-]{36}' | head -1)
+        if [[ -n "$SIMULATOR_ID" ]]; then
+            SIM_DEVICE_ID="$SIMULATOR_ID"
+        else
+            SIM_DEVICE_ID=$(xcrun simctl list devices available | grep -F "    $SIMULATOR_NAME (" | grep -oE '[A-F0-9-]{36}' | head -1)
+        fi
 
         if [[ -z "$SIM_DEVICE_ID" ]]; then
-            echo -e "${RED}Error: Simulator '$IPHONE_NAME' not found${NC}"
+            echo -e "${RED}Error: Simulator '${SIMULATOR_NAME}' not found${NC}"
             play_sound 1
             exit 1
         fi
@@ -1117,7 +1130,7 @@ if [[ "$ACTION" == "run" ]]; then
     if [[ "$DESTINATION_TYPE" == "device" ]]; then
         echo "   Destination: ${DEVICE_NAME:-$DEVICE_ID} device"
     else
-        echo "   Destination: $IPHONE_NAME simulator (iOS $OS_VERSION)"
+        echo "   Destination: ${SIMULATOR_NAME:-$SIMULATOR_ID} simulator (iOS $OS_VERSION)"
     fi
     echo ""
 
@@ -1180,10 +1193,14 @@ if [[ "$ACTION" == "run" ]]; then
         fi
     else
         # Boot simulator if needed
-        SIM_DEVICE_ID=$(xcrun simctl list devices available | grep -F "    $IPHONE_NAME (" | grep -oE '[A-F0-9-]{36}' | head -1)
+        if [[ -n "$SIMULATOR_ID" ]]; then
+            SIM_DEVICE_ID="$SIMULATOR_ID"
+        else
+            SIM_DEVICE_ID=$(xcrun simctl list devices available | grep -F "    $SIMULATOR_NAME (" | grep -oE '[A-F0-9-]{36}' | head -1)
+        fi
 
         if [[ -z "$SIM_DEVICE_ID" ]]; then
-            echo -e "${RED}Error: Simulator '$IPHONE_NAME' not found${NC}"
+            echo -e "${RED}Error: Simulator '${SIMULATOR_NAME}' not found${NC}"
             exit 1
         fi
 
@@ -1218,7 +1235,7 @@ echo "   Workspace: $WORKSPACE"
 if [[ "$DESTINATION_TYPE" == "device" ]]; then
     echo "   Destination: ${DEVICE_NAME:-$DEVICE_ID} device"
 else
-    echo "   Destination: $IPHONE_NAME simulator (iOS $OS_VERSION)"
+    echo "   Destination: ${SIMULATOR_NAME:-$SIMULATOR_ID} simulator (iOS $OS_VERSION)"
 fi
 echo "   Action: $ACTION"
 if [[ -n "$ONLY_TEST" ]]; then
