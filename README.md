@@ -42,7 +42,7 @@ To change a default, use the individual select actions:
 ```bash
 xcb select workspace
 xcb select scheme
-xcb select iphone
+xcb select simulator
 ```
 
 ## Examples
@@ -170,7 +170,7 @@ xcb setup                         # Pick workspace, scheme, and simulator in one
 xcb select workspace              # Pick from .xcworkspace files in the current directory
 xcb select scheme                 # Pick from available schemes
 xcb select scheme --filter Auth   # Filter the scheme list
-xcb select iphone                 # Pick a simulator and iOS version
+xcb select simulator                 # Pick a simulator and iOS version
 ```
 
 ### `.xcbrc`
@@ -180,7 +180,8 @@ Selections are stored in `.xcbrc` in your project directory:
 ```bash
 WORKSPACE="MyApp.xcworkspace"
 SCHEME="MyApp"
-IPHONE_NAME="iPhone 16"
+SIMULATOR_NAME="iPhone 16"
+SIMULATOR_ID="<UUID>"
 OS_VERSION="18.0"
 ```
 
@@ -193,7 +194,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 | `xcb setup` | Interactive setup (workspace, scheme, simulator) |
 | `xcb select workspace` | Choose default workspace |
 | `xcb select scheme` | Choose default scheme |
-| `xcb select iphone` | Choose default simulator |
+| `xcb select simulator` | Choose default simulator |
 | `xcb build` | Build the scheme |
 | `xcb build run` | Build and launch on simulator |
 | `xcb run` | Launch last built app (no rebuild) |
@@ -208,7 +209,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 |---|---|
 | `-s`, `--scheme` | Xcode scheme name |
 | `-w`, `--workspace` | Xcode workspace path |
-| `-i`, `--iphone` | Simulator name (e.g. `"iPhone 16"`) |
+| `-i`, `--simulator` | Simulator name (e.g. `"iPhone 16"`) |
 | `-o`, `--os-version` | iOS version (e.g. `18.0`) |
 | `--only` | Run specific test (`Target/Class[/method]`) |
 | `--detailed` | Show file-level coverage breakdown |

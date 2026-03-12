@@ -80,12 +80,12 @@ teardown() {
     [[ "$out" == *'Workspace is not set'* ]]
 }
 
-@test "missing iphone prints error and exits 1" {
+@test "missing simulator prints error and exits 1" {
     run "$XCB" clean -s TestScheme -w Test.xcworkspace -o 18.0 --dry-run
     [[ "$status" -eq 1 ]]
     local out
     out=$(echo "$output" | strip_ansi)
-    [[ "$out" == *'iPhone simulator is not set'* ]]
+    [[ "$out" == *'Simulator is not set'* ]]
 }
 
 @test "missing os-version prints error and exits 1" {
@@ -94,6 +94,39 @@ teardown() {
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'iOS version is not set'* ]]
+}
+
+# --- Device destination errors ---
+
+@test "missing device-id with device destination prints error and exits 1" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace -d device --dry-run
+    [[ "$status" -eq 1 ]]
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'Device identifier is not set'* ]]
+}
+
+@test "invalid destination type prints error and exits 1" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace -d foobar --dry-run
+    [[ "$status" -eq 1 ]]
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"Unknown destination type"* ]]
+}
+
+@test ".xcbrc with device config loads correctly" {
+    cat > .xcbrc <<'CONF'
+WORKSPACE="Saved.xcworkspace"
+SCHEME="SavedScheme"
+DESTINATION_TYPE="device"
+DEVICE_ID="ABCD-1234-EFGH-5678"
+DEVICE_NAME="Test iPhone"
+CONF
+    run "$XCB" clean --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'-destination "platform=iOS,id=ABCD-1234-EFGH-5678"'* ]]
 }
 
 # --- Help flags ---
@@ -126,7 +159,7 @@ teardown() {
     cat > .xcbrc <<'CONF'
 WORKSPACE="Saved.xcworkspace"
 SCHEME="SavedScheme"
-IPHONE_NAME="iPhone 15"
+SIMULATOR_NAME="iPhone 15"
 OS_VERSION="17.0"
 CONF
     run "$XCB" clean --dry-run
@@ -142,7 +175,7 @@ CONF
     cat > .xcbrc <<'CONF'
 WORKSPACE="Saved.xcworkspace"
 SCHEME="SavedScheme"
-IPHONE_NAME="iPhone 15"
+SIMULATOR_NAME="iPhone 15"
 OS_VERSION="17.0"
 CONF
     run "$XCB" clean -s OverrideScheme -w Override.xcworkspace --dry-run
@@ -151,7 +184,7 @@ CONF
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'-workspace "Override.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "OverrideScheme"'* ]]
-    # iphone and os-version should still come from .xcbrc
+    # simulator and os-version should still come from .xcbrc
     [[ "$out" == *'name=iPhone 15,OS=17.0'* ]]
 }
 

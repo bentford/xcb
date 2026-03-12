@@ -22,6 +22,17 @@ teardown() {
     [[ "$out" == *'xcbeautify'* ]]
 }
 
+@test "test coverage --dry-run with device destination outputs device destination" {
+    run "$XCB" test coverage "${STD_DEVICE_ARGS[@]}" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild test \'* ]]
+    [[ "$out" == *'-destination "platform=iOS,id=TEST-UUID-1234"'* ]]
+    [[ "$out" == *'-enableCodeCoverage YES'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
+}
+
 @test "test coverage --only --dry-run includes both coverage and only-testing" {
     run "$XCB" test coverage "${STD_ARGS[@]}" --only MyTests/MyTestClass --dry-run
     assert_success

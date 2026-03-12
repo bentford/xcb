@@ -22,6 +22,19 @@ teardown() {
     [[ "$out" == *'# Then: boot simulator, install app, launch app'* ]]
 }
 
+@test "build run --dry-run with device destination outputs devicectl commands" {
+    run "$XCB" build run "${STD_DEVICE_ARGS[@]}" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild build \'* ]]
+    [[ "$out" == *'-destination "platform=iOS,id=TEST-UUID-1234"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
+    [[ "$out" == *'xcrun devicectl device install app'* ]]
+    [[ "$out" == *'xcrun devicectl device process launch'* ]]
+    [[ "$out" != *'boot simulator'* ]]
+}
+
 @test "build run --dry-run does not include clean without --clean" {
     run "$XCB" build run "${STD_ARGS[@]}" --dry-run
     assert_success
