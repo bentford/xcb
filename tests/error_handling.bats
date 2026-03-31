@@ -65,7 +65,7 @@ teardown() {
 # --- Missing required flags ---
 
 @test "missing scheme prints error and exits 1" {
-    run "$XCB" clean -w Test.xcworkspace -i "iPhone 16" -o 18.0 --dry-run
+    run "$XCB" clean -w Test.xcworkspace --simulator-id "TEST-SIM-UUID" --dry-run
     [[ "$status" -eq 1 ]]
     local out
     out=$(echo "$output" | strip_ansi)
@@ -73,27 +73,52 @@ teardown() {
 }
 
 @test "missing workspace prints error and exits 1" {
-    run "$XCB" clean -s TestScheme -i "iPhone 16" -o 18.0 --dry-run
+    run "$XCB" clean -s TestScheme --simulator-id "TEST-SIM-UUID" --dry-run
     [[ "$status" -eq 1 ]]
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'Workspace is not set'* ]]
 }
 
-@test "missing iphone prints error and exits 1" {
-    run "$XCB" clean -s TestScheme -w Test.xcworkspace -o 18.0 --dry-run
+@test "missing simulator prints error and exits 1" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace --dry-run
     [[ "$status" -eq 1 ]]
     local out
     out=$(echo "$output" | strip_ansi)
-    [[ "$out" == *'iPhone simulator is not set'* ]]
+    [[ "$out" == *'Simulator is not set'* ]]
 }
 
-@test "missing os-version prints error and exits 1" {
-    run "$XCB" clean -s TestScheme -w Test.xcworkspace -i "iPhone 16" --dry-run
+# --- Device destination errors ---
+
+@test "missing device-id with device destination prints error and exits 1" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace -d device --dry-run
     [[ "$status" -eq 1 ]]
     local out
     out=$(echo "$output" | strip_ansi)
-    [[ "$out" == *'iOS version is not set'* ]]
+    [[ "$out" == *'Device identifier is not set'* ]]
+}
+
+@test "invalid destination type prints error and exits 1" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace -d foobar --dry-run
+    [[ "$status" -eq 1 ]]
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"Unknown destination type"* ]]
+}
+
+@test ".xcbrc with device config loads correctly" {
+    cat > .xcbrc <<'CONF'
+WORKSPACE="Saved.xcworkspace"
+SCHEME="SavedScheme"
+DESTINATION_TYPE="device"
+DEVICE_ID="ABCD-1234-EFGH-5678"
+DEVICE_NAME="Test iPhone"
+CONF
+    run "$XCB" clean --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'-destination "platform=iOS,id=ABCD-1234-EFGH-5678"'* ]]
 }
 
 # --- Help flags ---
@@ -126,8 +151,7 @@ teardown() {
     cat > .xcbrc <<'CONF'
 WORKSPACE="Saved.xcworkspace"
 SCHEME="SavedScheme"
-IPHONE_NAME="iPhone 15"
-OS_VERSION="17.0"
+SIMULATOR_ID="AAAA-BBBB-CCCC-DDDD"
 CONF
     run "$XCB" clean --dry-run
     assert_success
@@ -135,15 +159,14 @@ CONF
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'-workspace "Saved.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "SavedScheme"'* ]]
-    [[ "$out" == *'name=iPhone 15,OS=17.0'* ]]
+    [[ "$out" == *'id=AAAA-BBBB-CCCC-DDDD'* ]]
 }
 
 @test "CLI flags override .xcbrc values" {
     cat > .xcbrc <<'CONF'
 WORKSPACE="Saved.xcworkspace"
 SCHEME="SavedScheme"
-IPHONE_NAME="iPhone 15"
-OS_VERSION="17.0"
+SIMULATOR_ID="AAAA-BBBB-CCCC-DDDD"
 CONF
     run "$XCB" clean -s OverrideScheme -w Override.xcworkspace --dry-run
     assert_success
@@ -151,8 +174,33 @@ CONF
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'-workspace "Override.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "OverrideScheme"'* ]]
-    # iphone and os-version should still come from .xcbrc
-    [[ "$out" == *'name=iPhone 15,OS=17.0'* ]]
+    # simulator should still come from .xcbrc
+    [[ "$out" == *'id=AAAA-BBBB-CCCC-DDDD'* ]]
+}
+
+# --- Deprecation and migration ---
+
+@test "-i flag prints deprecation warning" {
+    run "$XCB" clean -s TestScheme -w Test.xcworkspace -i "iPhone 16" -o 18.0 --simulator-id "TEST-UUID" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'deprecated'* ]]
+}
+
+@test "old .xcbrc with IPHONE_NAME prints migration message" {
+    cat > .xcbrc <<'CONF'
+WORKSPACE="Saved.xcworkspace"
+SCHEME="SavedScheme"
+IPHONE_NAME="iPhone 15"
+OS_VERSION="17.0"
+CONF
+    run "$XCB" clean --dry-run
+    [[ "$status" -eq 1 ]]
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'old IPHONE_NAME/OS_VERSION format'* ]]
+    [[ "$out" == *'xcb select simulator'* ]]
 }
 
 assert_success() {

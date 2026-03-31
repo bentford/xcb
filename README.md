@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/bentford/xcb/actions/workflows/test.yml/badge.svg)](https://github.com/bentford/xcb/actions/workflows/test.yml)
 
-A command-line tool that brings Xcode build, test, and run workflows to the terminal. Quickly switch between schemes, run tests with coverage reports, and launch apps on simulators — without leaving your shell.
+A command-line tool that brings Xcode build, test, and run workflows to the terminal. Quickly switch between schemes, run tests with coverage reports, and launch apps on simulators or devices — without leaving your shell.
 
 Born out of frustration with a large Xcode project containing hundreds of schemes, where constantly switching between builds, tests, and simulators in the IDE was painfully slow. `xcb` makes it easy to repeat commands, jump between schemes, and get fast feedback from the command line.
 
@@ -14,17 +14,18 @@ curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
 
 ## Features
 
-- **Build & Run** — Build schemes and launch apps on simulators directly from the terminal
+- **Build & Run** — Build schemes and launch apps on simulators or devices directly from the terminal
 - **Test with Coverage** — Run tests with color-coded coverage reports, with file-level detail
 - **Scheme Switching** — Save defaults to `.xcbrc` and override per-command with `-s`
 - **Formatted Output** — Pipes xcodebuild through [xcbeautify](https://github.com/cpisciotta/xcbeautify) for readable build and test output
 - **Simulator Management** — Auto-boots simulators, installs and launches your app
+- **Device Support** — Build and run on physical devices via `devicectl` (experimental)
 - **Dry Run** — Preview the exact `xcodebuild` commands before executing
 
 ## Quick Start
 
 ```bash
-# One-time setup: pick your workspace, scheme, and simulator
+# One-time setup: pick your workspace, scheme, and destination
 xcb setup
 
 # Build and run
@@ -34,7 +35,8 @@ xcb build run
 Your selections are saved to `.xcbrc` so you don't need to specify them again. Override any time with flags:
 
 ```bash
-xcb build run -s DifferentScheme -i "iPhone 16" -o 18.0
+xcb build run -s DifferentScheme
+xcb build run -d device --device-id <uuid>
 ```
 
 To change a default, use the individual select actions:
@@ -42,7 +44,7 @@ To change a default, use the individual select actions:
 ```bash
 xcb select workspace
 xcb select scheme
-xcb select iphone
+xcb select simulator
 ```
 
 ## Examples
@@ -166,11 +168,11 @@ xcb test coverage -s MyApp --audible
 ### Interactive Setup
 
 ```bash
-xcb setup                         # Pick workspace, scheme, and simulator in one step
+xcb setup                         # Pick workspace, scheme, and destination in one step
 xcb select workspace              # Pick from .xcworkspace files in the current directory
 xcb select scheme                 # Pick from available schemes
 xcb select scheme --filter Auth   # Filter the scheme list
-xcb select iphone                 # Pick a simulator and iOS version
+xcb select simulator              # Pick a simulator (iPhone, iPad, Apple TV, etc.)
 ```
 
 ### `.xcbrc`
@@ -180,22 +182,24 @@ Selections are stored in `.xcbrc` in your project directory:
 ```bash
 WORKSPACE="MyApp.xcworkspace"
 SCHEME="MyApp"
-IPHONE_NAME="iPhone 16"
-OS_VERSION="18.0"
+DESTINATION_TYPE="simulator"
+SIMULATOR_ID="<UUID>"
 ```
 
-Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single invocation.
+Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults for a single invocation.
 
 ## Command Reference
 
 | Command | Description |
 |---|---|
-| `xcb setup` | Interactive setup (workspace, scheme, simulator) |
+| `xcb setup` | Interactive setup (workspace, scheme, destination) |
 | `xcb select workspace` | Choose default workspace |
 | `xcb select scheme` | Choose default scheme |
-| `xcb select iphone` | Choose default simulator |
+| `xcb select destination` | Choose simulator or device |
+| `xcb select simulator` | Choose default simulator (iPhone, iPad, etc.) |
+| `xcb select device` | Choose default physical device (experimental) |
 | `xcb build` | Build the scheme |
-| `xcb build run` | Build and launch on simulator |
+| `xcb build run` | Build and launch on simulator or device |
 | `xcb run` | Launch last built app (no rebuild) |
 | `xcb clean` | Clean derived data for a scheme |
 | `xcb test` | Run tests |
@@ -208,8 +212,9 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 |---|---|
 | `-s`, `--scheme` | Xcode scheme name |
 | `-w`, `--workspace` | Xcode workspace path |
-| `-i`, `--iphone` | Simulator name (e.g. `"iPhone 16"`) |
-| `-o`, `--os-version` | iOS version (e.g. `18.0`) |
+| `-d`, `--destination` | `simulator` or `device` (device is experimental) |
+| `--simulator-id` | Simulator identifier (UUID) |
+| `--device-id` | Physical device identifier (experimental) |
 | `--only` | Run specific test (`Target/Class[/method]`) |
 | `--detailed` | Show file-level coverage breakdown |
 | `--skip-build` | Report coverage from last build |
@@ -225,6 +230,7 @@ Command-line flags (`-s`, `-w`, `-i`, `-o`) override these defaults for a single
 - macOS with Xcode installed
 - Xcode Command Line Tools (`xcode-select --install`)
 - [xcbeautify](https://github.com/cpisciotta/xcbeautify) (`brew install xcbeautify`)
+- [jq](https://jqlang.github.io/jq/) (`brew install jq`) — only needed for `select device`
 
 ## License
 

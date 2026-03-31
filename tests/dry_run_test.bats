@@ -17,7 +17,17 @@ teardown() {
     [[ "$out" == *'xcodebuild test \'* ]]
     [[ "$out" == *'-workspace "Test.xcworkspace"'* ]]
     [[ "$out" == *'-scheme "TestScheme"'* ]]
-    [[ "$out" == *'-destination "platform=iOS Simulator,name=iPhone 16,OS=18.0"'* ]]
+    [[ "$out" == *'-destination "platform=iOS Simulator,id=TEST-SIM-UUID-1234"'* ]]
+    [[ "$out" == *'xcbeautify'* ]]
+}
+
+@test "test --dry-run with device destination outputs device destination" {
+    run "$XCB" test "${STD_DEVICE_ARGS[@]}" --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild test \'* ]]
+    [[ "$out" == *'-destination "platform=iOS,id=TEST-UUID-1234"'* ]]
     [[ "$out" == *'xcbeautify'* ]]
 }
 
