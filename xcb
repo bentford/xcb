@@ -90,12 +90,14 @@ set_config() {
     if [[ -z "$value" ]]; then
         # Remove the key
         if [[ -f "$XCB_CONFIG" ]] && grep -q "^${key}=" "$XCB_CONFIG"; then
-            sed -i '' "/^${key}=/d" "$XCB_CONFIG"
+            grep -v "^${key}=" "$XCB_CONFIG" > "$XCB_CONFIG.tmp" || true
+            mv "$XCB_CONFIG.tmp" "$XCB_CONFIG"
         fi
     else
         # Delete existing line (if any) then append — avoids sed metachar issues in value
         if [[ -f "$XCB_CONFIG" ]] && grep -q "^${key}=" "$XCB_CONFIG"; then
-            sed -i '' "/^${key}=/d" "$XCB_CONFIG"
+            grep -v "^${key}=" "$XCB_CONFIG" > "$XCB_CONFIG.tmp" || true
+            mv "$XCB_CONFIG.tmp" "$XCB_CONFIG"
         fi
         echo "${key}=\"$value\"" >> "$XCB_CONFIG"
     fi
