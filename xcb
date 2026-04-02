@@ -65,6 +65,7 @@ FILTER_SCHEME=false
 DRY_RUN=false
 CLEAN=false
 AUDIBLE=false
+QUIET=false
 
 
 # Load saved defaults from .xcbrc
@@ -138,6 +139,7 @@ usage() {
     echo "  --filter <text>        Filter by text (select scheme, test coverage)"
     echo "  --filter-scheme        Filter coverage targets by scheme name"
     echo "  --dry-run              Show the command without running it"
+    echo "  -q, --quiet            Reduce output to build info and summary only"
     echo "  -a, --audible          Play a sound when the command finishes"
     echo "  --force                Skip confirmation (purge only)"
     echo "  -h, --help             Show this help"
@@ -432,6 +434,10 @@ while [[ $# -gt 0 ]]; do
             CLEAN=true
             shift
             ;;
+        -q|--quiet)
+            QUIET=true
+            shift
+            ;;
         -a|--audible)
             AUDIBLE=true
             shift
@@ -476,6 +482,12 @@ case "$ACTION" in
     clean|run|purge|setup) ;;
     *) echo "Error: Unknown action '$ACTION'"; usage ;;
 esac
+
+# Build the -quiet flag for xcodebuild when quiet mode is enabled
+QUIET_FLAG=""
+if [[ "$QUIET" == true ]]; then
+    QUIET_FLAG="-quiet"
+fi
 
 # Select action - pick default workspace, scheme, or iPhone simulator
 if [[ "$ACTION" == "select" ]]; then
@@ -972,6 +984,9 @@ if [[ "$ACTION" == "build" ]]; then
             echo ""
         fi
         echo -e "${YELLOW}xcodebuild build \\${NC}"
+        if [[ "$QUIET" == true ]]; then
+            echo -e "${YELLOW}    -quiet \\${NC}"
+        fi
         echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
         echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
         echo -e "${YELLOW}    -destination \"$DESTINATION\" \\${NC}"
@@ -1001,6 +1016,7 @@ if [[ "$ACTION" == "build" ]]; then
     BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
 
     xcodebuild build \
+        $QUIET_FLAG \
         -workspace "$WORKSPACE" \
         -scheme "$SCHEME" \
         -destination "$DESTINATION" \
@@ -1017,6 +1033,9 @@ if [[ "$ACTION" == "build" ]]; then
     fi
     show_error_summary "$BUILD_LOG"
     rm -f "$BUILD_LOG"
+    if [[ "$QUIET" == true ]]; then
+        echo -e "${GREEN}Build succeeded${NC}"
+    fi
     play_sound 0
     exit 0
 fi
@@ -1040,6 +1059,9 @@ if [[ "$ACTION" == "build-run" ]]; then
             echo ""
         fi
         echo -e "${YELLOW}xcodebuild build \\${NC}"
+        if [[ "$QUIET" == true ]]; then
+            echo -e "${YELLOW}    -quiet \\${NC}"
+        fi
         echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
         echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
         echo -e "${YELLOW}    -destination \"$DESTINATION\" \\${NC}"
@@ -1077,6 +1099,7 @@ if [[ "$ACTION" == "build-run" ]]; then
     BUILD_LOG="/tmp/xcodebuild-${SCHEME}-${TIMESTAMP}.log"
 
     xcodebuild build \
+        $QUIET_FLAG \
         -workspace "$WORKSPACE" \
         -scheme "$SCHEME" \
         -destination "$DESTINATION" \
@@ -1094,6 +1117,9 @@ if [[ "$ACTION" == "build-run" ]]; then
     fi
     show_error_summary "$BUILD_LOG"
     rm -f "$BUILD_LOG"
+    if [[ "$QUIET" == true ]]; then
+        echo -e "${GREEN}Build succeeded${NC}"
+    fi
 
     # Fetch all build settings in one call to avoid multiple slow xcodebuild invocations
     BUILD_SETTINGS=$(xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -destination "$DESTINATION" -showBuildSettings 2>/dev/null)
@@ -1201,6 +1227,9 @@ fi
 
 if [[ "$DRY_RUN" == true ]]; then
     echo -e "${YELLOW}xcodebuild test \\${NC}"
+    if [[ "$QUIET" == true ]]; then
+        echo -e "${YELLOW}    -quiet \\${NC}"
+    fi
     echo -e "${YELLOW}    -workspace \"$WORKSPACE\" \\${NC}"
     echo -e "${YELLOW}    -scheme \"$SCHEME\" \\${NC}"
     echo -e "${YELLOW}    -destination \"$DESTINATION\" \\${NC}"
@@ -1229,6 +1258,7 @@ if [[ "$ACTION" == "coverage" ]]; then
 
         if [[ -n "$ONLY_TESTING_ARG" ]]; then
             xcodebuild test \
+                $QUIET_FLAG \
                 -workspace "$WORKSPACE" \
                 -scheme "$SCHEME" \
                 -destination "$DESTINATION" \
@@ -1238,6 +1268,7 @@ if [[ "$ACTION" == "coverage" ]]; then
                 2>&1 | tee "$BUILD_LOG" | xcbeautify
         else
             xcodebuild test \
+                $QUIET_FLAG \
                 -workspace "$WORKSPACE" \
                 -scheme "$SCHEME" \
                 -destination "$DESTINATION" \
@@ -1250,6 +1281,9 @@ if [[ "$ACTION" == "coverage" ]]; then
         if [[ $BUILD_STATUS -eq 0 ]]; then
             show_error_summary "$BUILD_LOG"
             rm -f "$BUILD_LOG"
+            if [[ "$QUIET" == true ]]; then
+                echo -e "${GREEN}Tests passed${NC}"
+            fi
         elif [[ $BUILD_STATUS -eq 65 ]]; then
             show_error_summary "$BUILD_LOG" true
             rm -f "$BUILD_LOG"
@@ -1299,6 +1333,7 @@ else
 
     if [[ -n "$ONLY_TESTING_ARG" ]]; then
         xcodebuild test \
+            $QUIET_FLAG \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
@@ -1306,6 +1341,7 @@ else
             2>&1 | tee "$BUILD_LOG" | xcbeautify
     else
         xcodebuild test \
+            $QUIET_FLAG \
             -workspace "$WORKSPACE" \
             -scheme "$SCHEME" \
             -destination "$DESTINATION" \
@@ -1316,6 +1352,9 @@ else
     if [[ $BUILD_STATUS -eq 0 ]]; then
         show_error_summary "$BUILD_LOG"
         rm -f "$BUILD_LOG"
+        if [[ "$QUIET" == true ]]; then
+            echo -e "${GREEN}Tests passed${NC}"
+        fi
     elif [[ $BUILD_STATUS -eq 65 ]]; then
         show_error_summary "$BUILD_LOG" true
         rm -f "$BUILD_LOG"
