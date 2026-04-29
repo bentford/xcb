@@ -45,6 +45,30 @@ show_error_summary() {
     fi
 }
 
+# Reads `xcodebuild -showBuildSettings` output on stdin; prints
+# "<FULL_PRODUCT_NAME>\t<BUILT_PRODUCTS_DIR>" for the first target whose
+# product name ends in .app. Empty output if no .app target found.
+# Each target block contains BUILT_PRODUCTS_DIR before FULL_PRODUCT_NAME, so
+# we remember the most recent dir and emit on the first matching .app name.
+parse_app_build_settings() {
+    awk '
+        match($0, /[[:space:]]BUILT_PRODUCTS_DIR[[:space:]]*=[[:space:]]*/) {
+            last_dir = substr($0, RSTART + RLENGTH)
+        }
+        match($0, /[[:space:]]FULL_PRODUCT_NAME[[:space:]]*=[[:space:]]*/) {
+            name = substr($0, RSTART + RLENGTH)
+            if (name ~ /\.app$/) { print name "\t" last_dir; exit }
+        }
+    '
+}
+
+# Hidden subcommand for unit tests: read showBuildSettings output on stdin,
+# print the parsed app name + path (tab-delimited). Not documented in usage.
+if [[ "${1:-}" == "--parse-build-settings" ]]; then
+    parse_app_build_settings
+    exit 0
+fi
+
 # Default values (set via 'select' commands or CLI flags; saved in .xcbrc)
 WORKSPACE=""
 SIMULATOR_NAME=""     # Human-readable simulator name (for display only)
@@ -920,6 +944,12 @@ launch_on_simulator() {
     xcrun simctl boot "$simulator_id" 2>/dev/null || true
     open -a Simulator
 
+    # Wait for SpringBoard to be fully ready before installing/launching.
+    # simctl boot returns before the simulator is interactive — launching too
+    # early causes FBSOpenApplicationServiceErrorDomain/denied by service delegate.
+    echo "⏳ Waiting for simulator to be ready..."
+    xcrun simctl bootstatus "$simulator_id" -b 2>/dev/null || true
+
     echo "📲 Installing app..."
     xcrun simctl install "$simulator_id" "$app_path"
 
@@ -1122,14 +1152,21 @@ if [[ "$ACTION" == "build-run" ]]; then
     fi
 
     # Fetch all build settings in one call to avoid multiple slow xcodebuild invocations
+    # -showBuildSettings emits one block per target in the scheme; grep for the .app product
+    # specifically so multi-target schemes (e.g. app + embedded framework) resolve correctly.
     BUILD_SETTINGS=$(xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -destination "$DESTINATION" -showBuildSettings 2>/dev/null)
 
-    APP_PATH=$(echo "$BUILD_SETTINGS" | grep -m 1 "BUILT_PRODUCTS_DIR" | awk '{print $3}')
-    APP_NAME=$(echo "$BUILD_SETTINGS" | grep -m 1 "FULL_PRODUCT_NAME" | awk '{print $3}')
-    BUNDLE_ID=$(echo "$BUILD_SETTINGS" | grep -m 1 "PRODUCT_BUNDLE_IDENTIFIER" | awk '{print $3}')
+    # BUNDLE_ID is read from the resolved app's Info.plist rather than from
+    # build settings, to avoid picking up a sibling target's bundle id.
+    IFS=$'\t' read -r APP_NAME APP_PATH < <(echo "$BUILD_SETTINGS" | parse_app_build_settings)
+    BUNDLE_ID=""
+    if [[ -n "$APP_PATH" && -n "$APP_NAME" ]]; then
+        BUNDLE_ID=$(defaults read "$APP_PATH/$APP_NAME/Info.plist" CFBundleIdentifier 2>/dev/null)
+    fi
 
     if [[ -z "$APP_PATH" || -z "$APP_NAME" ]]; then
         echo -e "${YELLOW}⚠ Could not determine app path. Build succeeded but cannot auto-launch.${NC}"
+        echo -e "${YELLOW}  Make sure your scheme includes a runnable .app target.${NC}"
         play_sound 0
         exit 0
     fi
@@ -1168,16 +1205,19 @@ if [[ "$ACTION" == "run" ]]; then
     fi
 
     # Fetch all build settings in one call to avoid multiple slow xcodebuild invocations
+    # -showBuildSettings emits one block per target; grep for the .app product specifically.
     echo -e "${BLUE}🔍 Reading build settings...${NC}"
     BUILD_SETTINGS=$(xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -destination "$DESTINATION" -showBuildSettings 2>/dev/null)
 
-    APP_PATH=$(echo "$BUILD_SETTINGS" | grep -m 1 "BUILT_PRODUCTS_DIR" | awk '{print $3}')
-    APP_NAME=$(echo "$BUILD_SETTINGS" | grep -m 1 "FULL_PRODUCT_NAME" | awk '{print $3}')
-    BUNDLE_ID=$(echo "$BUILD_SETTINGS" | grep -m 1 "PRODUCT_BUNDLE_IDENTIFIER" | awk '{print $3}')
+    IFS=$'\t' read -r APP_NAME APP_PATH < <(echo "$BUILD_SETTINGS" | parse_app_build_settings)
+    BUNDLE_ID=""
+    if [[ -n "$APP_PATH" && -n "$APP_NAME" ]]; then
+        BUNDLE_ID=$(defaults read "$APP_PATH/$APP_NAME/Info.plist" CFBundleIdentifier 2>/dev/null)
+    fi
 
     if [[ -z "$APP_PATH" || -z "$APP_NAME" ]]; then
         echo -e "${RED}Error: Could not determine app path. Have you built the app yet?${NC}"
-        echo -e "${YELLOW}Tip: Run 'build run' first${NC}"
+        echo -e "${YELLOW}Tip: Make sure your scheme builds a runnable .app target${NC}"
         exit 1
     fi
 
