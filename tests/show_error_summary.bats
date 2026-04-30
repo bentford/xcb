@@ -5,8 +5,8 @@ setup() {
     setup
 
     # Source color vars and functions from xcb (stop before main logic)
-    eval "$(sed -n '9,16p' "$XCB")"      # color variables
-    eval "$(sed -n '28,46p' "$XCB")"      # show_error_summary()
+    eval "$(sed -n "/^RED='/,/^NC='/p" "$XCB")"      # color variables
+    eval "$(sed -n '/^show_error_summary()/,/^}/p' "$XCB")"      # show_error_summary()
 
     # Stub xcbeautify as a passthrough so tests work without the real binary
     xcbeautify() { cat; }
