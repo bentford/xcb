@@ -6,6 +6,11 @@
 
 set -uo pipefail
 
+XCB_VERSION="0.1.2"
+XCB_INSTALL_URL="https://raw.githubusercontent.com/bentford/xcb/main/install.sh"
+XCB_VERSION_URL="https://raw.githubusercontent.com/bentford/xcb/main/VERSION"
+XCB_CHANGELOG_URL="https://github.com/bentford/xcb/blob/main/CHANGELOG.md"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -66,6 +71,69 @@ parse_app_build_settings() {
 # print the parsed app name + path (tab-delimited). Not documented in usage.
 if [[ "${1:-}" == "--parse-build-settings" ]]; then
     parse_app_build_settings
+    exit 0
+fi
+
+if [[ "${1:-}" == "--version" || "${1:-}" == "-v" ]]; then
+    echo "xcb $XCB_VERSION"
+    exit 0
+fi
+
+if [[ "${1:-}" == "--update" ]]; then
+    update_dry_run=false
+    if [[ "${2:-}" == "--dry-run" ]]; then
+        update_dry_run=true
+    fi
+    if ! command -v curl &>/dev/null; then
+        echo "Error: curl is required to update xcb" >&2
+        exit 1
+    fi
+
+    # install.sh writes to $HOME/bin/xcb. If the running xcb lives elsewhere
+    # (Homebrew, /usr/local/bin, custom path), the install would create a second
+    # copy rather than upgrade the one in use.
+    running_path="$(cd "$(dirname -- "$0")" 2>/dev/null && pwd -P)/$(basename -- "$0")"
+    expected_dir="$HOME/bin"
+    if [[ -d "$expected_dir" ]]; then
+        expected_dir="$(cd "$expected_dir" && pwd -P)"
+    fi
+    expected_path="$expected_dir/xcb"
+    path_mismatch=false
+    if [[ "$running_path" != "$expected_path" ]]; then
+        path_mismatch=true
+    fi
+
+    echo "Checking for updates..."
+    remote_version=$(curl -fsSL "$XCB_VERSION_URL" 2>/dev/null | tr -d '[:space:]')
+    if [[ -z "$remote_version" ]]; then
+        echo "Error: could not fetch remote version from $XCB_VERSION_URL" >&2
+        exit 1
+    fi
+    if [[ "$remote_version" == "$XCB_VERSION" ]]; then
+        echo "xcb is up to date (v$XCB_VERSION)"
+        exit 0
+    fi
+    if [[ "$path_mismatch" == true ]]; then
+        echo ""
+        echo "Warning: running xcb is at $running_path"
+        echo "         but the installer writes to $expected_path"
+        echo "         Updating will create a second copy at $expected_path"
+        echo "         instead of upgrading the one currently on your PATH."
+        echo ""
+    fi
+    if [[ "$update_dry_run" == true ]]; then
+        echo "Would update xcb $XCB_VERSION -> $remote_version"
+        echo "Would run: curl -fsSL $XCB_INSTALL_URL | bash"
+        echo "Changelog: $XCB_CHANGELOG_URL"
+        exit 0
+    fi
+    echo "Updating xcb $XCB_VERSION -> $remote_version..."
+    if ! curl -fsSL "$XCB_INSTALL_URL" | bash; then
+        echo "Error: update failed" >&2
+        exit 1
+    fi
+    echo "xcb updated to v$remote_version"
+    echo "Changelog: $XCB_CHANGELOG_URL"
     exit 0
 fi
 
@@ -166,6 +234,8 @@ usage() {
     echo "  -q, --quiet            Reduce output to build info and summary only"
     echo "  -a, --audible          Play a sound when the command finishes"
     echo "  --force                Skip confirmation (purge only)"
+    echo "  -v, --version          Print xcb version and exit"
+    echo "  --update               Update xcb to the latest version from GitHub"
     echo "  -h, --help             Show this help"
     echo ""
     echo "Examples:"
