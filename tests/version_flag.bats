@@ -14,9 +14,12 @@ load test_helper
     [[ "$output" =~ ^xcb\ [0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
-@test "VERSION file matches XCB_VERSION in xcb" {
-    repo_root="$(cd "$(dirname "$XCB")" && pwd)"
-    file_version=$(tr -d '[:space:]' < "$repo_root/VERSION")
-    xcb_version=$(grep '^XCB_VERSION="' "$XCB" | sed 's/^XCB_VERSION="\(.*\)"/\1/')
-    [ "$file_version" = "$xcb_version" ]
+@test "VERSION file matches xcbVersion in Version.swift" {
+    file_version=$(tr -d '[:space:]' < "$REPO_ROOT/VERSION")
+    [ "$file_version" = "$(source_version)" ]
+}
+
+@test "--version reports the version from Version.swift" {
+    run "$XCB" --version
+    [ "$output" = "xcb $(source_version)" ]
 }

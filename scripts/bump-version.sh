@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bump (or revert) the patch version in VERSION and sync XCB_VERSION in xcb.
+# Bump (or revert) the patch version in VERSION and sync xcbVersion in Version.swift.
 #   bump-version.sh                    increment patch
 #   bump-version.sh --revert-version   decrement patch
 set -euo pipefail
@@ -46,15 +46,15 @@ new="${major}.${minor}.${new_patch}"
 
 echo "$new" > VERSION
 
-# Update XCB_VERSION="x.y.z" line in xcb
-if ! grep -q '^XCB_VERSION="' xcb; then
-    echo "Error: XCB_VERSION line not found in xcb" >&2
+# Update the `let xcbVersion = "x.y.z"` line in Version.swift
+version_swift="Sources/XCBCore/Version.swift"
+if ! grep -q '^let xcbVersion = "' "$version_swift"; then
+    echo "Error: xcbVersion line not found in $version_swift" >&2
     exit 1
 fi
 tmp=$(mktemp)
-sed "s/^XCB_VERSION=\".*\"/XCB_VERSION=\"$new\"/" xcb > "$tmp"
-mv "$tmp" xcb
-chmod +x xcb
+sed "s/^let xcbVersion = \".*\"/let xcbVersion = \"$new\"/" "$version_swift" > "$tmp"
+mv "$tmp" "$version_swift"
 
 if (( direction > 0 )); then
     echo "Bumped: $current -> $new"
