@@ -7,7 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  macos:
+  # The "Protect Branch" ruleset on main requires a check named "test"
+  test:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
