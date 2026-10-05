@@ -48,7 +48,10 @@ STUB
 }
 
 teardown() {
-    [[ -n "${TEST_DIR:-}" ]] && rm -rf "$TEST_DIR"
+    # TEST_DIR is unset when setup skipped (non-macOS); a bare `[[ ]] &&` would fail the test
+    if [[ -n "${TEST_DIR:-}" ]]; then
+        rm -rf "$TEST_DIR"
+    fi
 }
 
 @test "installs the latest release to ~/bin/xcb" {

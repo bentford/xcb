@@ -4,8 +4,8 @@ xcb is a Swift package with no third-party dependencies. It builds from the comm
 
 ## Prerequisites
 
-- **Swift 6.0 or later**: Xcode 16+ on macOS, or a [Swift toolchain](https://www.swift.org/install/) on Linux
-- **[bats-core](https://github.com/bats-core/bats-core)** for the CLI tests: `brew install bats-core` (macOS) or `apt-get install bats` (Debian/Ubuntu)
+- **macOS with Xcode 16 or later** (Swift 6.0+)
+- **[bats-core](https://github.com/bats-core/bats-core)** for the CLI tests: `brew install bats-core`
 - **[xcbeautify](https://github.com/cpisciotta/xcbeautify)** to run real builds and tests with xcb (not needed for the test suites)
 
 ## Build
@@ -39,15 +39,7 @@ swift build && bats tests/   # CLI tests, run against .build/debug/xcb
 
 The bats tests run the binary as a black box, so they check the commands, flags, dry-run output and errors. To test a different binary, set `XCB`, e.g. `XCB=.build/release/xcb bats tests/`.
 
-### Linux
-
-On Linux, xcb only builds and runs its tests. It can't do real builds because it drives Xcode tools. To check the Linux build from a Mac with Docker:
-
-```bash
-docker run --rm -v "$PWD":/src -w /src swift:6.2 bash -c "swift build && swift test"
-```
-
-CI runs the build, unit tests and bats tests on both Linux and macOS for every pull request (`.github/workflows/test.yml`).
+CI runs the build, unit tests and bats tests on macOS for every pull request (`.github/workflows/test.yml`).
 
 ## Project layout
 
