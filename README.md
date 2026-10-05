@@ -230,7 +230,10 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 - macOS with Xcode installed
 - Xcode Command Line Tools (`xcode-select --install`)
 - [xcbeautify](https://github.com/cpisciotta/xcbeautify) (`brew install xcbeautify`)
-- [jq](https://jqlang.github.io/jq/) (`brew install jq`) — only needed for `select device`
+
+## Development
+
+xcb is a Swift package that builds with `swift build`. See [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and release steps.
 
 ## License
 

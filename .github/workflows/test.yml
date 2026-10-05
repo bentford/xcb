@@ -7,13 +7,20 @@ on:
     branches: [main]
 
 jobs:
+  # The "Protect Branch" ruleset on main requires a check named "test"
   test:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install bats
-        run: sudo apt-get update && sudo apt-get install -y bats
+        run: brew install bats-core
 
-      - name: Run tests
+      - name: Build
+        run: swift build
+
+      - name: Unit tests
+        run: swift test
+
+      - name: CLI tests
         run: bats tests/
