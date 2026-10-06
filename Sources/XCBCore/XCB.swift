@@ -82,6 +82,9 @@ final class App {
         case .purge:
             try purge()
             return
+        case .log:
+            try log()
+            return
         default:
             break
         }
@@ -119,11 +122,11 @@ final class App {
         case .buildRun: try build(andRun: true)
         case .run: try runLastBuild()
         case .test, .coverage: try test(xcresultPath: xcresultPath)
-        case .select, .setup, .purge: break
+        case .select, .setup, .purge, .log: break
         }
     }
 
-    private func validateDestination() throws {
+    func validateDestination() throws {
         if options.workspace.isEmpty {
             echo("\(red)Error: Workspace is not set\(reset)")
             echo("\(yellow)Tip: Run 'xcb select workspace' or pass -w <workspace>\(reset)")

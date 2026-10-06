@@ -67,6 +67,11 @@ enum Parsers {
         return simulators
     }
 
+    /// Whether the simulator with `id` is booted, from `xcrun simctl list devices`.
+    static func simulatorIsBooted(_ id: String, inSimctl output: String) -> Bool {
+        lines(output).contains { $0.contains("(\(id))") && $0.contains("(Booted)") }
+    }
+
     struct Device: Equatable {
         let name: String
         let id: String

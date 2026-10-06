@@ -3,11 +3,11 @@ import Foundation
 enum Action: String {
     case select, setup, purge, clean, build
     case buildRun = "build-run"
-    case run, test, coverage
+    case run, test, coverage, log
 }
 
 enum SelectTarget: String {
-    case workspace, scheme, destination, simulator, device
+    case workspace, scheme, destination, simulator, device, subsystem
 }
 
 /// Settings from `.xcbrc` (saved via `select` commands) overridden by CLI flags.
@@ -20,6 +20,7 @@ struct Options {
     var destinationType = ""  // "simulator" or "device"
     var deviceID = ""         // CoreDevice identifier (UUID) for physical devices
     var deviceName = ""       // Human-readable device name (for display only)
+    var subsystem = ""        // os_log subsystem for `log` (defaults to the app's bundle ID)
 
     var action: Action = .build
     var selectTarget: SelectTarget?
@@ -33,6 +34,8 @@ struct Options {
     var clean = false
     var audible = false
     var quiet = false
+    var categories: [String] = []
+    var logLevel = "debug"
 
     /// Apply saved defaults from `.xcbrc`.
     mutating func apply(config: [String: String]) {
@@ -44,6 +47,7 @@ struct Options {
         destinationType = config["DESTINATION_TYPE"] ?? destinationType
         deviceID = config["DEVICE_ID"] ?? deviceID
         deviceName = config["DEVICE_NAME"] ?? deviceName
+        subsystem = config["LOG_SUBSYSTEM"] ?? subsystem
 
         // Backward compatibility: migrate IPHONE_NAME from old .xcbrc files
         let legacyName = config["IPHONE_NAME"] ?? ""
@@ -75,7 +79,7 @@ extension Options {
         var parsedAction: Action?
         if let first = args.first, !first.hasPrefix("-") {
             switch first {
-            case "build", "test", "run", "clean", "purge", "select", "setup":
+            case "build", "test", "run", "clean", "purge", "select", "setup", "log":
                 args.removeFirst()
                 parsedAction = Action(rawValue: first)
                 if let sub = args.first, !sub.hasPrefix("-") {
@@ -118,6 +122,13 @@ extension Options {
             case "-d", "--destination": destinationType = try value()
             case "--simulator-id": simulatorID = try value()
             case "--device-id": deviceID = try value()
+            case "--subsystem": subsystem = try value()
+            case "-c", "--category": categories.append(try value())
+            case "--level":
+                logLevel = try value()
+                guard ["default", "info", "debug"].contains(logLevel) else {
+                    throw UsageError("Error: --level must be default, info, or debug")
+                }
             case "-i", "--iphone":
                 echoError("\(yellow)Warning: -i/--iphone is deprecated and was ignored. Use 'xcb select simulator' or --simulator-id instead.\(reset)")
                 _ = args.popFirst()
@@ -154,6 +165,7 @@ extension Options {
           select destination     Pick default destination (simulator or device)
           select simulator       Pick default simulator
           select device          Pick default physical device (experimental)
+          select subsystem       Set default log subsystem (blank uses the app's bundle ID)
           setup                  Select workspace, scheme, and destination
 
           clean                  Clean derived data for scheme
@@ -163,6 +175,8 @@ extension Options {
 
           test                   Build and run tests
           test coverage          Build and run tests with code coverage report
+
+          log                    Stream the app's debug logs from the simulator
 
           purge                  Remove coverage files from /tmp
 
@@ -174,6 +188,9 @@ extension Options {
           --device-id <uuid>     Physical device identifier (experimental) (\(deviceID.or("not set, use 'select device'")))
           --only <test>          Run specific test(s) (test actions only)
                                  Format: TestTarget/TestClass[/testMethod]
+          --subsystem <name>     Log subsystem (\(subsystem.or("app's bundle ID")))
+          -c, --category <name>  Log category, repeatable; '*' wildcards allowed (log only)
+          --level <level>        Log level: default, info, or debug (log only, default: debug)
           --skip-build           Skip build, use results from last run (test coverage)
           --detailed             File-level coverage breakdown (test coverage)
           --clean                Clean before building (build actions only)
@@ -198,6 +215,7 @@ extension Options {
           xcb build -s MyApp
           xcb build run -s MyApp
           xcb run -s MyApp
+          xcb log -c Networking -c 'Auth*'
           xcb setup                       Interactive setup (workspace, scheme, destination)
           xcb purge --force
         """

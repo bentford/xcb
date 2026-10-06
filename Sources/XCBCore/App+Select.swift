@@ -9,6 +9,7 @@ extension App {
         case .destination: try selectDestination()
         case .simulator: try selectSimulator()
         case .device: try selectDevice()
+        case .subsystem: try selectSubsystem()
         }
     }
 
@@ -144,6 +145,28 @@ extension App {
         options.deviceID = selected.id
         options.deviceName = selected.name
         echo("\(green)Default device set to: \(bold)\(selected.name)\(reset) \(green)(\(selected.model), iOS \(selected.os))\(reset)")
+    }
+
+    /// Free-text prompt: an os_log subsystem can't be listed, so there's nothing to pick from.
+    /// Leaving it blank removes the saved value, so `log` follows the current scheme's bundle ID.
+    func selectSubsystem() throws {
+        echo()
+        echo("\(bold)Log subsystem\(reset) (current: \(options.subsystem.or("app's bundle ID")))")
+        echo("Leave blank to use the app's bundle ID.")
+        echo("\(cyan)Subsystem:\(reset) ", terminator: "")
+        // EOF (Ctrl+D, non-interactive stdin) is not a blank answer: leave the saved value alone
+        guard let entered = readChoice() else {
+            echo()
+            echo("\(red)No subsystem entered\(reset)")
+            throw ExitCode(1)
+        }
+        try save("LOG_SUBSYSTEM", entered)
+        options.subsystem = entered
+        if entered.isEmpty {
+            echo("\(green)Default subsystem set to: \(bold)app's bundle ID\(reset)")
+        } else {
+            echo("\(green)Default subsystem set to: \(bold)\(entered)\(reset)")
+        }
     }
 
     func selectSimulator() throws {

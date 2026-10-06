@@ -21,6 +21,17 @@ import Testing
         #expect(result == [Simulator(name: "iPhone 16 Pro Max", id: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE", os: "18.0")])
     }
 
+    @Test func detectsBootedSimulatorByID() {
+        let output = """
+            -- iOS 18.0 --
+                iPhone 16 (AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE) (Shutdown)
+                iPhone 16 Pro (FFFFFFFF-1111-2222-3333-444444444444) (Booted)
+            """
+        #expect(Parsers.simulatorIsBooted("FFFFFFFF-1111-2222-3333-444444444444", inSimctl: output))
+        #expect(!Parsers.simulatorIsBooted("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE", inSimctl: output))
+        #expect(!Parsers.simulatorIsBooted("00000000-0000-0000-0000-000000000000", inSimctl: output))
+    }
+
     @Test func parsesMultipleDevicesAcrossOSVersions() {
         let result = Parsers.simulators(inSimctl: """
             -- iOS 17.5 --
