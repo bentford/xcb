@@ -19,6 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
 - **Scheme Switching** — Save defaults to `.xcbrc` and override per-command with `-s`
 - **Formatted Output** — Pipes xcodebuild through [xcbeautify](https://github.com/cpisciotta/xcbeautify) for readable build and test output
 - **Simulator Management** — Auto-boots simulators, installs and launches your app
+- **Simulator Logs** — Stream your app's debug logs from the simulator, filtered by subsystem and category
 - **Device Support** — Build and run on physical devices via `devicectl` (experimental)
 - **Dry Run** — Preview the exact `xcodebuild` commands before executing
 
@@ -135,6 +136,24 @@ xcb test coverage --skip-build --filter MyModule --detailed
 xcb test coverage -s MyApp --skip-build
 ```
 
+### Stream Logs
+
+```bash
+# Stream debug logs for the app's bundle ID (read from the last build)
+xcb log
+
+# Filter by category; repeat -c for more, use * for wildcards
+xcb log -c Networking -c 'Auth*'
+
+# Show info-level and above (default is debug, the most verbose)
+xcb log --level info
+
+# Use a subsystem other than the bundle ID
+xcb log --subsystem com.example.analytics
+```
+
+`log` streams from the selected simulator, which must already be booted (`xcb build run` boots it). Physical devices aren't supported. To save a default subsystem, run `xcb select subsystem`.
+
 ### Cleanup Coverage Files
 
 ```bash
@@ -173,6 +192,7 @@ xcb select workspace              # Pick from .xcworkspace files in the current 
 xcb select scheme                 # Pick from available schemes
 xcb select scheme --filter Auth   # Filter the scheme list
 xcb select simulator              # Pick a simulator (iPhone, iPad, Apple TV, etc.)
+xcb select subsystem              # Set the log subsystem (blank uses the app's bundle ID)
 ```
 
 ### `.xcbrc`
@@ -184,6 +204,7 @@ WORKSPACE="MyApp.xcworkspace"
 SCHEME="MyApp"
 DESTINATION_TYPE="simulator"
 SIMULATOR_ID="<UUID>"
+LOG_SUBSYSTEM="com.example.app"   # optional; defaults to the app's bundle ID
 ```
 
 Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults for a single invocation.
@@ -198,12 +219,14 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `xcb select destination` | Choose simulator or device |
 | `xcb select simulator` | Choose default simulator (iPhone, iPad, etc.) |
 | `xcb select device` | Choose default physical device (experimental) |
+| `xcb select subsystem` | Set default log subsystem |
 | `xcb build` | Build the scheme |
 | `xcb build run` | Build and launch on simulator or device |
 | `xcb run` | Launch last built app (no rebuild) |
 | `xcb clean` | Clean derived data for a scheme |
 | `xcb test` | Run tests |
 | `xcb test coverage` | Run tests with coverage report |
+| `xcb log` | Stream the app's debug logs from the simulator |
 | `xcb purge` | Remove coverage files from /tmp |
 
 ### Flags
@@ -215,6 +238,9 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `-d`, `--destination` | `simulator` or `device` (device is experimental) |
 | `--simulator-id` | Simulator identifier (UUID) |
 | `--device-id` | Physical device identifier (experimental) |
+| `--subsystem` | Log subsystem (defaults to the app's bundle ID) |
+| `-c`, `--category` | Log category, repeatable; `*` wildcards allowed |
+| `--level` | Log level: `default`, `info`, or `debug` (default: `debug`) |
 | `--only` | Run specific test (`Target/Class[/method]`) |
 | `--detailed` | Show file-level coverage breakdown |
 | `--skip-build` | Report coverage from last build |

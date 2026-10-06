@@ -2,6 +2,13 @@
 
 All notable changes to xcb are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `log` streams the app's debug logs from the simulator ([#14](https://github.com/bentford/xcb/issues/14)). It filters by the app's bundle ID by default, or by `--subsystem`, and by one or more `-c`/`--category` values, which accept `*` wildcards. `--level` sets the log level (`default`, `info`, or `debug`; defaults to `debug`). Physical devices aren't supported.
+- `select subsystem` saves a default log subsystem to `.xcbrc` as `LOG_SUBSYSTEM`.
+
 ## [0.2.0]
 
 ### Changed

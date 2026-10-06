@@ -52,6 +52,7 @@ Sources/XCBCore/             all the logic
   App+Build.swift            clean, build, build run, run
   App+Test.swift             test, test coverage, purge
   App+Select.swift           select and setup (interactive pickers)
+  App+Log.swift              log (simulator log streaming)
   Parsers.swift              xcodebuild / simctl / devicectl output parsing
   Coverage.swift             xccov report decoding and formatting
   ConfigFile.swift           .xcbrc reading and writing

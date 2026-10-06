@@ -60,6 +60,15 @@ enum Shell {
         return (p.terminationStatus, String(decoding: data, as: UTF8.self))
     }
 
+    /// Replace this process with `args` (like bash `exec`), so Ctrl+C and the exit
+    /// status go straight to the command. Only returns, by throwing, if exec fails.
+    static func exec(_ args: [String]) throws -> Never {
+        let argv = (["/usr/bin/env"] + args).map { strdup($0) } + [nil]
+        execv("/usr/bin/env", argv)
+        echoError("\(red)Error: could not run \(args.first ?? "")\(reset)")
+        throw ExitCode(127)
+    }
+
     /// Start a process in the background with output discarded; don't wait for it.
     static func spawnDetached(_ args: [String]) {
         let p = process(args)

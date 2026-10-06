@@ -17,6 +17,7 @@ import Testing
         ("clean", .clean),
         ("purge", .purge),
         ("setup", .setup),
+        ("log", .log),
     ])
     func mapsActionsAndSubActions(args: String, expected: Action) throws {
         #expect(try parse(args).action == expected)
@@ -37,6 +38,29 @@ import Testing
         #expect(options.detailed && options.quiet && options.audible)
     }
 
+    @Test func parsesLogFlags() throws {
+        let options = try parse("log --subsystem com.example.app -c Networking --category Auth*")
+        #expect(options.subsystem == "com.example.app")
+        #expect(options.categories == ["Networking", "Auth*"])
+        #expect(options.logLevel == "debug")
+    }
+
+    @Test(arguments: ["default", "info", "debug"])
+    func parsesLogLevel(level: String) throws {
+        #expect(try parse("log --level \(level)").logLevel == level)
+    }
+
+    @Test func mapsSelectSubsystem() throws {
+        #expect(try parse("select subsystem").selectTarget == .subsystem)
+    }
+
+    @Test func loadsSubsystemFromConfig() throws {
+        var options = Options()
+        options.apply(config: ["LOG_SUBSYSTEM": "com.example.app"])
+        try options.parse(["log"])
+        #expect(options.subsystem == "com.example.app")
+    }
+
     @Test func flagsOverrideConfig() throws {
         var options = Options()
         options.apply(config: ["SCHEME": "Saved", "WORKSPACE": "Saved.xcworkspace"])
@@ -45,7 +69,7 @@ import Testing
         #expect(options.workspace == "Saved.xcworkspace")
     }
 
-    @Test(arguments: ["", "foobar", "build nope", "test nope", "select", "select nope", "run extra", "build --bogus", "build -s", "build --help"])
+    @Test(arguments: ["", "foobar", "build nope", "test nope", "select", "select nope", "run extra", "log extra", "log -c", "log --level", "log --level error", "build --bogus", "build -s", "build --help"])
     func rejectsInvalidCommandLines(args: String) {
         #expect(throws: UsageError.self) { try parse(args) }
     }

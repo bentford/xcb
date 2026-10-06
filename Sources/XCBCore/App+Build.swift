@@ -156,7 +156,7 @@ extension App {
     /// Locate the scheme's .app product via -showBuildSettings (one call, since each is slow).
     /// The bundle id is read from the app's Info.plist rather than build settings, so
     /// multi-target schemes (e.g. app + embedded framework) don't pick up a sibling's id.
-    private func resolveBuiltApp() -> BuiltApp? {
+    func resolveBuiltApp() -> BuiltApp? {
         let settings = Shell.capture(xcodebuild("-showBuildSettings")).output
         guard let product = Parsers.appProduct(inBuildSettings: settings),
               !product.name.isEmpty, !product.directory.isEmpty else { return nil }
