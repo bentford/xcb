@@ -2,7 +2,7 @@
 
 All notable changes to xcb are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.3.0]
 
 ### Added
 
