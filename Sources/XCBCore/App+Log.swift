@@ -86,12 +86,17 @@ extension App {
 /// Builds the `log stream --predicate` filter.
 enum LogPredicate {
     /// `subsystem == "x"`, plus `AND (category == "a" OR category LIKE "b*")` when
-    /// categories are given. Categories containing `*` match as wildcards.
+    /// categories are given. Categories containing `*` match as wildcards; `\` and `?`
+    /// are escaped so LIKE treats them literally rather than as escape or wildcard characters.
     static func make(subsystem: String, categories: [String]) -> String {
         var predicate = "subsystem == \(quoted(subsystem))"
         if !categories.isEmpty {
             let terms = categories.map { category in
-                category.contains("*") ? "category LIKE \(quoted(category))" : "category == \(quoted(category))"
+                guard category.contains("*") else { return "category == \(quoted(category))" }
+                let pattern = category
+                    .replacingOccurrences(of: "\\", with: "\\\\")
+                    .replacingOccurrences(of: "?", with: "\\?")
+                return "category LIKE \(quoted(pattern))"
             }
             predicate += " AND (\(terms.joined(separator: " OR ")))"
         }
