@@ -46,6 +46,7 @@ To change a default, use the individual select actions:
 xcb select workspace
 xcb select scheme
 xcb select simulator
+xcb select subsystem
 ```
 
 ## Examples
@@ -139,11 +140,11 @@ xcb test coverage -s MyApp --skip-build
 ### Stream Logs
 
 ```bash
-# Stream debug logs for the app's bundle ID (read from the last build)
+# Stream debug logs for the default subsystem (the set with `xcb select subsystem`)
 xcb log
 
 # Filter by category; repeat -c for more, use * for wildcards
-xcb log -c Networking -c 'Auth*'
+xcb log -c Networking -c 'Auth*' -c '*Sync*'
 
 # Show info-level and above (default is debug, the most verbose)
 xcb log --level info
@@ -153,6 +154,8 @@ xcb log --subsystem com.example.analytics
 ```
 
 `log` streams from the selected simulator, which must already be booted (`xcb build run` boots it). Physical devices aren't supported. To save a default subsystem, run `xcb select subsystem`.
+
+A category without `*` must match exactly. A category with `*` is matched as a wildcard pattern, where `*` matches any run of characters. Matching is case-sensitive. Quote wildcard categories (`'Auth*'`) so your shell doesn't expand them as file names. xcb escapes quotes and backslashes in the values you pass, so they can't break the log filter.
 
 ### Cleanup Coverage Files
 
