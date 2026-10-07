@@ -2,6 +2,16 @@
 
 All notable changes to xcb are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.1]
+
+### Fixed
+
+- `log -c` treats `?` and `\` literally in wildcard categories ([#16](https://github.com/bentford/xcb/issues/16)). Previously a category containing `*` also treated `?` as a single-character wildcard and `\` as an escape character, so `-c 'Cache?*'` matched `CacheStore` and `-c 'Foo\Bar*'` matched `FooBar`. Only `*` is a wildcard now.
+
+### Changed
+
+- The README now documents `select subsystem`, the default subsystem `log` uses, how category matching works, and why to quote wildcard categories.
+
 ## [0.3.0]
 
 ### Added
