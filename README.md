@@ -15,6 +15,16 @@ Born out of frustration with a large Xcode project containing hundreds of scheme
 curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
 ```
 
+### Update
+
+```bash
+xcb --update            # update to the latest release
+xcb --update --dry-run  # show what would be updated without installing
+xcb --version           # print the installed version
+```
+
+`--update` checks the latest GitHub Release and, if it's newer, re-runs the installer, which replaces `~/bin/xcb`. If the `xcb` you're running is somewhere else, it warns you that the update will install a second copy instead.
+
 ## Features
 
 - **Build & Run** — Build schemes and launch apps on simulators or devices directly from the terminal
@@ -256,6 +266,8 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--force` | Skip confirmation prompts |
 | `--filter` | Filter by text (scheme selection, coverage) |
 | `--filter-scheme` | Filter coverage targets by scheme name |
+| `-v`, `--version` | Print the xcb version |
+| `--update` | Update xcb to the latest release |
 
 ## Requirements
 
