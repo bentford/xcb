@@ -1,6 +1,9 @@
 # xcb
 
 [![Tests](https://github.com/bentford/xcb/actions/workflows/test.yml/badge.svg)](https://github.com/bentford/xcb/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/bentford/xcb)](https://github.com/bentford/xcb/releases/latest)
+[![License](https://img.shields.io/github/license/bentford/xcb)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 
 A command-line tool that brings Xcode build, test, and run workflows to the terminal. Quickly switch between schemes, run tests with coverage reports, and launch apps on simulators or devices — without leaving your shell.
 
@@ -11,6 +14,16 @@ Born out of frustration with a large Xcode project containing hundreds of scheme
 ```bash
 curl -fsSL https://raw.githubusercontent.com/bentford/xcb/main/install.sh | bash
 ```
+
+### Update
+
+```bash
+xcb --update            # update to the latest release
+xcb --update --dry-run  # show what would be updated without installing
+xcb --version           # print the installed version
+```
+
+`--update` checks the latest GitHub Release and, if it's newer, re-runs the installer, which replaces `~/bin/xcb`. If the `xcb` you're running is somewhere else, it warns you that the update will install a second copy instead.
 
 ## Features
 
@@ -253,6 +266,8 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--force` | Skip confirmation prompts |
 | `--filter` | Filter by text (scheme selection, coverage) |
 | `--filter-scheme` | Filter coverage targets by scheme name |
+| `-v`, `--version` | Print the xcb version |
+| `--update` | Update xcb to the latest release |
 
 ## Requirements
 
