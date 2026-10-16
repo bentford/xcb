@@ -198,7 +198,7 @@ extension App {
         let simulatorID = options.simulatorID
         echo("📱 Launching simulator...")
         Shell.run(["xcrun", "simctl", "boot", simulatorID], discardStderr: true)
-        Shell.run(["open", "-a", "Simulator"])
+        Shell.run(SimulatorApp.openArguments())
 
         // Wait for SpringBoard to be fully ready before installing/launching.
         // simctl boot returns before the simulator is interactive — launching too
