@@ -2,6 +2,12 @@
 
 All notable changes to xcb are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.3.2]
+
+### Fixed
+
+- `build run` and `run` open the active Xcode's simulator app ([#18](https://github.com/bentford/xcb/issues/18)). Xcode 27 replaced Simulator.app with DeviceHub.app, and `open -a Simulator` picked up an older Xcode's Simulator.app instead, which conflicted with DeviceHub and could shut devices down. xcb now opens DeviceHub.app or Simulator.app from the Xcode that `xcode-select` points to.
+
 ## [0.3.1]
 
 ### Fixed
