@@ -1,6 +1,9 @@
 # xcb
 
 [![Tests](https://github.com/bentford/xcb/actions/workflows/test.yml/badge.svg)](https://github.com/bentford/xcb/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/bentford/xcb)](https://github.com/bentford/xcb/releases/latest)
+[![License](https://img.shields.io/github/license/bentford/xcb)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)
 
 A command-line tool that brings Xcode build, test, and run workflows to the terminal. Quickly switch between schemes, run tests with coverage reports, and launch apps on simulators or devices — without leaving your shell.
 
