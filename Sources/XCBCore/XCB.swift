@@ -89,6 +89,11 @@ final class App {
             break
         }
 
+        if options.lastResults && options.action != .coverage {
+            echo("\(yellow)⚠ --last-results is ignored in \(options.action.rawValue) action (it's for test coverage)\(reset)")
+            options.lastResults = false
+        }
+
         // Warn about test-run flags when no tests will run
         let ignoredBecause = reusesResults ? "with --last-results, which doesn't run tests"
             : "in \(options.action.rawValue) action"

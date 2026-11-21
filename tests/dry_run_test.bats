@@ -124,3 +124,21 @@ assert_success() {
     assert_success
     [[ "$(echo "$output" | strip_ansi)" == *'--without-building is ignored'* ]]
 }
+
+@test "--last-results outside test coverage says it's ignored" {
+    run "$XCB" test "${STD_ARGS[@]}" --last-results --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"--last-results is ignored in test action (it's for test coverage)"* ]]
+    [[ "$out" == *'xcodebuild test \'* ]]
+}
+
+@test "test --without-building --dry-run explains the build and the test run name" {
+    run "$XCB" test "${STD_ARGS[@]}" --without-building --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"Build: skipped, using the last build for testing (builds once if there isn't one)"* ]]
+    [[ "$out" == *'TestScheme[_<TestPlan>]_<platform><version>.xctestrun'* ]]
+}

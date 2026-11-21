@@ -18,7 +18,7 @@ extension App {
             echo("   Only: \(options.onlyTest)")
         }
         if options.withoutBuilding {
-            echo("   Build: skipped (uses the last build for testing)")
+            echo("   Build: skipped, using the last build for testing (builds once if there isn't one)")
         }
 
         let onlyTesting = options.onlyTest.isEmpty ? [] : ["-only-testing:\(options.onlyTest)"]
@@ -39,7 +39,7 @@ extension App {
                 // coverage was decided when it was built.
                 let dropped = ["-workspace", "-scheme", "-enableCodeCoverage", "-skipPackageUpdates"]
                 preview = preview.filter { argument in !dropped.contains { argument.hasPrefix($0) } }
-                showCommand("xcodebuild test-without-building", ["-xctestrun <DerivedData>/Build/Products/\(options.scheme)_<platform>.xctestrun"] + preview)
+                showCommand("xcodebuild test-without-building", ["-xctestrun <DerivedData>/Build/Products/\(options.scheme)[_<TestPlan>]_<platform><version>.xctestrun"] + preview)
             } else {
                 showCommand("xcodebuild test", preview)
             }

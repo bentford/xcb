@@ -111,6 +111,16 @@ import Testing
         #expect(on.fastAppLookup == false)
     }
 
+    @Test func helpShowsWherePackageUpdateSkippingComesFrom() throws {
+        var saved = Options()
+        saved.apply(config: ["SKIP_PACKAGE_UPDATES": "1", "FAST_APP_LOOKUP": "0"])
+        #expect(saved.usage().contains("Don't check remote packages for updates (on, from .xcbrc)"))
+        #expect(saved.usage().contains("Find the app in DerivedData (run actions) (off)"))
+
+        #expect(try parse("build --skip-package-updates").usage().contains("for updates (on)"))
+        #expect(Options().usage().contains("for updates (off)"))
+    }
+
     @Test(arguments: ["", "foobar", "build nope", "test nope", "select", "select nope", "run extra", "log extra", "log -c", "log --level", "log --level error", "build --bogus", "build -s", "build --help"])
     func rejectsInvalidCommandLines(args: String) {
         #expect(throws: UsageError.self) { try parse(args) }
