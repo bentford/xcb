@@ -104,6 +104,8 @@ xcb clean -s MyApp
 xcb run -s MyApp
 ```
 
+`build run`, `run` and `log` find the app in Xcode's DerivedData folder for your workspace, using the scheme's Run action (build configuration and app name). Each worktree has its own DerivedData folder, so worktrees never launch each other's builds. If xcb can't be sure it has the right app (custom DerivedData or build location in Xcode's settings, a scheme that doesn't launch an app, or no matching build), it reads `xcodebuild -showBuildSettings` instead, which is slow on large workspaces, and remembers the result in `~/Library/Caches/xcb/app-paths.json`. Pass `--no-fast-app-lookup` to always read build settings.
+
 ### Test
 
 ```bash
@@ -115,7 +117,12 @@ xcb test -s MyApp --only MyTests/LoginTests
 
 # Run a single test method
 xcb test -s MyApp --only MyTests/LoginTests/testValidCredentials
+
+# Rerun it without building (like Xcode's Test Without Building)
+xcb test -s MyApp --only MyTests/LoginTests/testValidCredentials --without-building
 ```
+
+`--without-building` runs `xcodebuild test-without-building` from the `.xctestrun` file in your workspace's DerivedData folder, so it skips loading the workspace and building. It runs whatever was built last, so changes since then aren't included. The first time, xcb builds for testing to create the `.xctestrun`; later `xcb test` runs keep its test bundles up to date. Coverage is set when tests are built, so `test coverage --without-building` only uses a `.xctestrun` built with coverage, and builds one the first time.
 
 Pass `--skip-package-updates` to add xcodebuild's `-skipPackageUpdates`, which skips checking remote packages for newer versions (about 20 s per run on large workspaces). To make it the default for a project, add `SKIP_PACKAGE_UPDATES="1"` to `.xcbrc`, and pass `--no-skip-package-updates` for a run that should check, e.g. after `Package.resolved` changes.
 
@@ -263,9 +270,11 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--only` | Run specific test (`Target/Class[/method]`) |
 | `--detailed` | Show file-level coverage breakdown |
 | `--skip-build` | Report coverage from last build |
+| `--without-building` | Run tests from the last build for testing |
 | `--clean` | Clean before building |
 | `--skip-package-updates` | Don't check remote packages for updates (`SKIP_PACKAGE_UPDATES="1"` in `.xcbrc` makes it the default) |
 | `--no-skip-package-updates` | Check remote packages even when `.xcbrc` skips them |
+| `--no-fast-app-lookup` | Find the app with `xcodebuild -showBuildSettings` instead of DerivedData |
 | `--dry-run` | Show commands without executing |
 | `-a`, `--audible` | Play a sound when the command finishes |
 | `--force` | Skip confirmation prompts |

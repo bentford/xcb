@@ -56,6 +56,17 @@ assert_success() {
     fi
 }
 
+@test "test --without-building --dry-run runs from the .xctestrun without building" {
+    run "$XCB" test "${STD_ARGS[@]}" --only MyTests/MyClass --without-building --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild test-without-building'* ]]
+    [[ "$out" == *'-xctestrun'* ]]
+    [[ "$out" == *'-only-testing:MyTests/MyClass'* ]]
+    [[ "$out" != *'-workspace'* ]]
+}
+
 @test "build --dry-run checks for package updates by default" {
     run "$XCB" build "${STD_ARGS[@]}" --dry-run
     assert_success
@@ -80,4 +91,16 @@ assert_success() {
     run "$XCB" build "${STD_ARGS[@]}" --no-skip-package-updates --dry-run
     assert_success
     [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
+}
+
+@test "test --without-building --dry-run leaves out -skipPackageUpdates" {
+    run "$XCB" test "${STD_ARGS[@]}" --skip-package-updates --without-building --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
+}
+
+@test "--without-building is ignored outside test actions" {
+    run "$XCB" build "${STD_ARGS[@]}" --without-building --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'--without-building is ignored'* ]]
 }

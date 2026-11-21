@@ -16,6 +16,9 @@ extension App {
         if !options.onlyTest.isEmpty {
             echo("   Only: \(options.onlyTest)")
         }
+        if options.withoutBuilding {
+            echo("   Build: skipped (uses the last build for testing)")
+        }
 
         let onlyTesting = options.onlyTest.isEmpty ? [] : ["-only-testing:\(options.onlyTest)"]
 
@@ -30,7 +33,15 @@ extension App {
             }
             preview += onlyTesting
             preview.append("2>&1 | xcbeautify")
-            showCommand("xcodebuild test", preview)
+            if options.withoutBuilding {
+                // -xctestrun replaces -workspace/-scheme (so no package resolution either);
+                // coverage was decided when it was built.
+                let dropped = ["-workspace", "-scheme", "-enableCodeCoverage", "-skipPackageUpdates"]
+                preview = preview.filter { argument in !dropped.contains { argument.hasPrefix($0) } }
+                showCommand("xcodebuild test-without-building", ["-xctestrun <DerivedData>/Build/Products/\(options.scheme)_<platform>.xctestrun"] + preview)
+            } else {
+                showCommand("xcodebuild test", preview)
+            }
             return
         }
 
@@ -41,7 +52,7 @@ extension App {
         guard coverage else {
             let logPath = buildLogPath()
             echo()
-            let status = try runBeautified(xcodebuild("test", quiet: options.quiet, onlyTesting), logPath: logPath)
+            let status = try runBeautified(try testArguments(coverage: false, onlyTesting), logPath: logPath)
             reportTestStatus(status, logPath: logPath)
             playSound(status)
             if status != 0 { throw ExitCode(status) }
@@ -59,7 +70,7 @@ extension App {
             echo("   xcresult: \(xcresultPath)")
             echo()
 
-            let args = xcodebuild("test", quiet: options.quiet, ["-enableCodeCoverage", "YES", "-resultBundlePath", xcresultPath] + onlyTesting)
+            let args = try testArguments(coverage: true, ["-resultBundlePath", xcresultPath] + onlyTesting)
             status = try runBeautified(args, logPath: logPath)
             reportTestStatus(status, logPath: logPath)
         }
@@ -86,6 +97,41 @@ extension App {
 
         playSound(status)
         if status != 0 { throw ExitCode(status) }
+    }
+
+    /// `xcodebuild test`, or with --without-building, `test-without-building` from the scheme's
+    /// `.xctestrun` (building for testing once when there isn't one yet).
+    private func testArguments(coverage: Bool, _ extra: [String]) throws -> [String] {
+        let coverageFlag = coverage ? ["-enableCodeCoverage", "YES"] : []
+        guard options.withoutBuilding else {
+            return xcodebuild("test", quiet: options.quiet, coverageFlag + extra)
+        }
+        let workspace = URL(fileURLWithPath: options.workspace).standardizedFileURL.path
+        let platform = options.destinationType == "device" ? "iphoneos" : "iphonesimulator"
+        let locator = AppLocator(workspace: workspace, scheme: options.scheme, platform: platform)
+
+        var testRun = locator.testRun(coverage: coverage)
+        if testRun == nil {
+            echo("\(blue)🔨 No build for testing yet. Building once so later runs can skip the build...\(reset)")
+            let logPath = buildLogPath()
+            let status = try runBeautified(xcodebuild("build-for-testing", quiet: options.quiet, coverageFlag), logPath: logPath)
+            if status != 0 {
+                reportTestStatus(status, logPath: logPath)
+                playSound(status)
+                throw ExitCode(status)
+            }
+            try? FileManager.default.removeItem(atPath: logPath)
+            testRun = locator.testRun(coverage: false)
+        }
+        guard let testRun else {
+            // Custom DerivedData location: the products exist, so let xcodebuild find them via the scheme.
+            echo("\(yellow)⚠ No .xctestrun found in DerivedData; running from the scheme instead\(reset)")
+            return xcodebuild("test-without-building", quiet: options.quiet, coverageFlag + extra)
+        }
+        echo("   Test run: \(basename(testRun))")
+        echo()
+        return ["xcodebuild", "test-without-building"] + (options.quiet ? ["-quiet"] : [])
+            + ["-xctestrun", testRun, "-destination", destination] + extra
     }
 
     /// xcodebuild exits 65 when tests fail; anything else non-zero is a build failure.

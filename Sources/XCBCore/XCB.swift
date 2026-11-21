@@ -94,6 +94,10 @@ final class App {
             echo("\(yellow)⚠ --only is ignored in \(options.action.rawValue) action\(reset)")
             options.onlyTest = ""
         }
+        if options.withoutBuilding && (![.test, .coverage].contains(options.action) || reusesResults) {
+            echo("\(yellow)⚠ --without-building is ignored in \(options.action.rawValue) action\(reset)")
+            options.withoutBuilding = false
+        }
 
         var xcresultPath = ""
         if reusesResults {

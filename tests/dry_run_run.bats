@@ -36,3 +36,8 @@ assert_success() {
         return 1
     fi
 }
+
+@test "run accepts --no-fast-app-lookup" {
+    run "$XCB" run "${STD_ARGS[@]}" --no-fast-app-lookup --dry-run
+    assert_success
+}

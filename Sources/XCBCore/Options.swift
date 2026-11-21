@@ -25,6 +25,7 @@ struct Options {
     var action: Action = .build
     var selectTarget: SelectTarget?
     var skipBuild = false
+    var withoutBuilding = false
     var detailed = false
     var onlyTest = ""
     var force = false
@@ -34,6 +35,7 @@ struct Options {
     var clean = false
     var audible = false
     var quiet = false
+    var fastAppLookup = true
     var skipPackageUpdates = false
     var categories: [String] = []
     var logLevel = "debug"
@@ -148,6 +150,8 @@ extension Options {
             case "-a", "--audible": audible = true
             case "--dry-run": dryRun = true
             case "--skip-build": skipBuild = true
+            case "--without-building": withoutBuilding = true
+            case "--no-fast-app-lookup": fastAppLookup = false
             case "--skip-package-updates": skipPackageUpdates = true
             case "--no-skip-package-updates": skipPackageUpdates = false
             case "--only": onlyTest = try value()
@@ -198,8 +202,10 @@ extension Options {
           -c, --category <name>  Log category, repeatable; '*' wildcards allowed (log only)
           --level <level>        Log level: default, info, or debug (log only, default: debug)
           --skip-build           Skip build, use results from last run (test coverage)
+          --without-building     Run tests from the last build for testing (test actions)
           --detailed             File-level coverage breakdown (test coverage)
           --clean                Clean before building (build actions only)
+          --no-fast-app-lookup   Find the app with xcodebuild -showBuildSettings (slow) instead of DerivedData (run actions)
           --skip-package-updates Don't check remote packages for updates (save with SKIP_PACKAGE_UPDATES in .xcbrc)
           --no-skip-package-updates  Check remote packages even when .xcbrc skips them
           --filter <text>        Filter by text (select scheme, test coverage)
@@ -218,6 +224,7 @@ extension Options {
           xcb select simulator           Pick a default simulator
           xcb test -s MyScheme
           xcb test -s MyScheme --only MyTests/MyTestClass
+          xcb test -s MyScheme --only MyTests/MyTestClass --without-building
           xcb test coverage -s MyScheme --detailed
           xcb test coverage --skip-build -s MyScheme
           xcb build -s MyApp
