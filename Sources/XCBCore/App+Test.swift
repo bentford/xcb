@@ -121,6 +121,8 @@ extension App {
                 throw ExitCode(status)
             }
             try? FileManager.default.removeItem(atPath: logPath)
+            // We just built it with the right coverage setting, so take the newest one as is,
+            // rather than building again if the coverage check doesn't recognize it.
             testRun = locator.testRun(coverage: false)
         }
         guard let testRun else {

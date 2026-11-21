@@ -179,13 +179,41 @@ private func launchScheme(
 @Suite struct TestRunLookupTests {
     private func writeTestRun(_ sandbox: Sandbox, folder: String, name: String, coverage: Bool, modified: Date) throws -> String {
         let path = "\(sandbox.derivedData)/\(folder)/Build/Products/\(name)"
-        var target: [String: Any] = ["BlueprintName": "AppTests"]
-        if coverage { target["CodeCoverageBuildableInfos"] = [["Name": "App"]] }
-        let plist: [String: Any] = ["__xctestrun_metadata__": ["FormatVersion": 1], "AppTests": target]
+        // Format 2, as Xcode writes it: coverage builds list the instrumented binaries at the top level.
+        var plist: [String: Any] = [
+            "__xctestrun_metadata__": ["FormatVersion": 2],
+            "TestConfigurations": [["Name": "Test Scheme Action", "TestTargets": [["BlueprintName": "AppTests"]]]],
+        ]
+        if coverage { plist["CodeCoverageBuildableInfos"] = [["Name": "App.app"]] }
         try FileManager.default.createDirectory(atPath: (path as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: URL(fileURLWithPath: path))
         try FileManager.default.setAttributes([.modificationDate: modified], ofItemAtPath: path)
         return path
+    }
+
+    @Test(arguments: [
+        ("top-level list", true),
+        ("per-target list (older formats)", true),
+        ("no key", false),
+        ("empty list", false),
+        ("other coverage-named keys", false),
+    ])
+    func coverageMeansANonEmptyBuildableInfosList(layout: String, expected: Bool) throws {
+        let infos: [[String: Any]] = [["Name": "App.app"]]
+        let body: [String: Any] = switch layout {
+        case "top-level list": ["CodeCoverageBuildableInfos": infos]
+        case "per-target list (older formats)": ["AppTests": ["CodeCoverageBuildableInfos": infos]]
+        case "empty list": ["CodeCoverageBuildableInfos": [Any]()]
+        case "other coverage-named keys": ["AppTests": ["EnableCodeCoverage": false, "CodeCoverageSettings": ["Enabled": false]]]
+        default: [:]
+        }
+        let sandbox = try Sandbox()
+        let path = "\(sandbox.root)/App.xctestrun"
+        let plist = body.merging(["__xctestrun_metadata__": ["FormatVersion": 2]]) { current, _ in current }
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: URL(fileURLWithPath: path))
+
+        #expect(AppLocator.testRunHasCoverage(path) == expected)
     }
 
     @Test func findsTheNewestTestRunForTheSchemeAndPlatform() throws {

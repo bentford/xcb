@@ -149,13 +149,17 @@ struct AppLocator {
             .max { (modificationDate($0) ?? .distantPast) < (modificationDate($1) ?? .distantPast) }
     }
 
-    /// Whether a `.xctestrun` was built with code coverage (any test target has coverage settings).
+    /// Whether a `.xctestrun` was built with code coverage. Xcode lists the instrumented
+    /// binaries in a non-empty `CodeCoverageBuildableInfos` array (top level in format 2)
+    /// and leaves the key out otherwise. It's searched at any depth to also cover older
+    /// formats that keep settings per test target.
     static func testRunHasCoverage(_ path: String) -> Bool {
         guard let data = FileManager.default.contents(atPath: path),
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) else { return false }
         func search(_ value: Any) -> Bool {
             if let dictionary = value as? [String: Any] {
-                return dictionary.contains { key, value in key.localizedCaseInsensitiveContains("coverage") || search(value) }
+                if let infos = dictionary["CodeCoverageBuildableInfos"] as? [Any], !infos.isEmpty { return true }
+                return dictionary.values.contains(where: search)
             }
             if let array = value as? [Any] { return array.contains(where: search) }
             return false
