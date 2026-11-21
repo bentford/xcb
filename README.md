@@ -113,14 +113,24 @@ xcb run -s MyApp
 xcb test -s MyApp
 
 # Run a specific test class
-xcb test -s MyApp --only MyTests/LoginTests
+xcb test -s MyApp --only-testing MyTests/LoginTests
 
-# Run a single test method
-xcb test -s MyApp --only MyTests/LoginTests/testValidCredentials
+# Run a single test method (xcodebuild's colon form works too)
+xcb test -s MyApp --only-testing:MyTests/LoginTests/testValidCredentials
 
-# Rerun it without building (like Xcode's Test Without Building)
-xcb test -s MyApp --only MyTests/LoginTests/testValidCredentials --without-building
+# Run everything except the UI tests
+xcb test -s MyApp --skip-testing MyAppUITests
+
+# Combine and repeat them, like xcodebuild
+xcb test -s MyApp --only-testing MyTests --skip-testing MyTests/NetworkTests
+
+# Rerun a test without building (like Xcode's Test Without Building)
+xcb test -s MyApp --only-testing MyTests/LoginTests/testValidCredentials --without-building
 ```
+
+`--only-testing` and `--skip-testing` take `Target[/Class[/method]]` and pass each value to xcodebuild's option of the same name. `--only-testing` was called `--only` before, and the old name still works.
+
+To pick a single Swift Testing test, add parentheses after its name, e.g. `--only-testing "MyTests/LoginTests/validCredentials()"`. Without them, xcodebuild doesn't match the test: `--only-testing` runs no tests and still reports success, and `--skip-testing` runs the test anyway. XCTest methods don't need parentheses.
 
 `--without-building` runs `xcodebuild test-without-building` from the `.xctestrun` file in your workspace's DerivedData folder, so it skips loading the workspace and building. It runs whatever was built last, so changes since then aren't included. The first time, xcb builds for testing to create the `.xctestrun`; later `xcb test` runs keep its test bundles up to date. Coverage is set when tests are built, so `test coverage --without-building` only uses a `.xctestrun` built with coverage, and builds one the first time.
 
@@ -136,7 +146,7 @@ xcb test coverage -s MyApp
 xcb test coverage -s MyApp --detailed
 
 # Coverage for a specific test class
-xcb test coverage -s MyApp --only MyTests/LoginTests
+xcb test coverage -s MyApp --only-testing MyTests/LoginTests
 ```
 
 ### Filter Coverage Targets
@@ -270,7 +280,8 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--subsystem` | Log subsystem (defaults to the app's bundle ID) |
 | `-c`, `--category` | Log category, repeatable; `*` wildcards allowed |
 | `--level` | Log level: `default`, `info`, or `debug` (default: `debug`) |
-| `--only` | Run specific test (`Target/Class[/method]`) |
+| `--only-testing` | Run only these tests (`Target[/Class[/method]]`), repeatable (formerly `--only`) |
+| `--skip-testing` | Run all tests except these (`Target[/Class[/method]]`), repeatable |
 | `--detailed` | Show file-level coverage breakdown |
 | `--last-results` | Show the last test coverage results without running tests (formerly `--skip-build`) |
 | `--without-building` | Run tests from the last build for testing |

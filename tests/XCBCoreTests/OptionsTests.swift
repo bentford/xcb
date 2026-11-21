@@ -28,12 +28,12 @@ import Testing
     }
 
     @Test func parsesFlags() throws {
-        let options = try parse("test coverage -s App -w App.xcworkspace -d device --device-id D --only T/C --filter Kit --detailed -q -a")
+        let options = try parse("test coverage -s App -w App.xcworkspace -d device --device-id D --only-testing T/C --filter Kit --detailed -q -a")
         #expect(options.scheme == "App")
         #expect(options.workspace == "App.xcworkspace")
         #expect(options.destinationType == "device")
         #expect(options.deviceID == "D")
-        #expect(options.onlyTest == "T/C")
+        #expect(options.onlyTesting == ["T/C"])
         #expect(options.filter == "Kit")
         #expect(options.detailed && options.quiet && options.audible)
     }
@@ -67,6 +67,27 @@ import Testing
         try options.parse(["build", "-s", "Override"])
         #expect(options.scheme == "Override")
         #expect(options.workspace == "Saved.xcworkspace")
+    }
+
+    @Test(arguments: ["--only-testing T/C", "--only-testing:T/C", "--only T/C"])
+    func parsesOnlyTestingFormsAndItsOldName(flag: String) throws {
+        #expect(try parse("test \(flag)").onlyTesting == ["T/C"])
+    }
+
+    @Test(arguments: ["--skip-testing T/C", "--skip-testing:T/C"])
+    func parsesSkipTestingForms(flag: String) throws {
+        #expect(try parse("test \(flag)").skipTesting == ["T/C"])
+    }
+
+    @Test func repeatsTestSelection() throws {
+        let options = try parse("test --only-testing A --only B/C --only-testing:D --skip-testing A/X --skip-testing:A/Y/z")
+        #expect(options.onlyTesting == ["A", "B/C", "D"])
+        #expect(options.skipTesting == ["A/X", "A/Y/z"])
+    }
+
+    @Test(arguments: ["--only-testing:", "--skip-testing:", "--only-testing", "--skip-testing"])
+    func requiresATestIdentifier(flag: String) throws {
+        #expect(throws: UsageError.self) { try parse("test \(flag)") }
     }
 
     @Test(arguments: ["--last-results", "--skip-build"])

@@ -39,13 +39,58 @@ teardown() {
     [[ "$out" != *'enableCodeCoverage'* ]]
 }
 
-@test "test --only --dry-run includes only-testing flag" {
-    run "$XCB" test "${STD_ARGS[@]}" --only MyTests/MyTestClass --dry-run
+@test "test --only-testing --dry-run includes only-testing flag" {
+    run "$XCB" test "${STD_ARGS[@]}" --only-testing MyTests/MyTestClass --dry-run
     assert_success
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'xcodebuild test \'* ]]
     [[ "$out" == *'-only-testing:MyTests/MyTestClass'* ]]
+    [[ "$out" == *'Only: MyTests/MyTestClass'* ]]
+}
+
+@test "test --only-testing: accepts xcodebuild's colon form" {
+    run "$XCB" test "${STD_ARGS[@]}" --only-testing:MyTests/MyTestClass/testThing --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'-only-testing:MyTests/MyTestClass/testThing'* ]]
+}
+
+@test "test --only still works as the old name for --only-testing" {
+    run "$XCB" test "${STD_ARGS[@]}" --only MyTests/MyTestClass --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'-only-testing:MyTests/MyTestClass'* ]]
+}
+
+@test "test --skip-testing --dry-run includes skip-testing flag" {
+    run "$XCB" test "${STD_ARGS[@]}" --skip-testing MyAppUITests --skip-testing:MyTests/SlowTests --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'-skip-testing:MyAppUITests'* ]]
+    [[ "$out" == *'-skip-testing:MyTests/SlowTests'* ]]
+    [[ "$out" == *'Skip: MyAppUITests, MyTests/SlowTests'* ]]
+}
+
+@test "test with repeated --only-testing and --skip-testing passes each one" {
+    run "$XCB" test "${STD_ARGS[@]}" --only-testing MyTests --only-testing OtherTests/LoginTests --skip-testing MyTests/NetworkTests --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'-only-testing:MyTests '* ]]
+    [[ "$out" == *'-only-testing:OtherTests/LoginTests'* ]]
+    [[ "$out" == *'-skip-testing:MyTests/NetworkTests'* ]]
+    [[ "$out" == *'Only: MyTests, OtherTests/LoginTests'* ]]
+}
+
+@test "--only-testing and --skip-testing are ignored outside test actions" {
+    run "$XCB" build "${STD_ARGS[@]}" --only-testing MyTests --skip-testing MyAppUITests --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'--only-testing is ignored in build action'* ]]
+    [[ "$out" == *'--skip-testing is ignored in build action'* ]]
+    [[ "$out" != *'-only-testing:'* ]]
+    [[ "$out" != *'-skip-testing:'* ]]
 }
 
 assert_success() {
@@ -57,13 +102,14 @@ assert_success() {
 }
 
 @test "test --without-building --dry-run runs from the .xctestrun without building" {
-    run "$XCB" test "${STD_ARGS[@]}" --only MyTests/MyClass --without-building --dry-run
+    run "$XCB" test "${STD_ARGS[@]}" --only-testing MyTests/MyClass --skip-testing MyTests/MyClass/testSlow --without-building --dry-run
     assert_success
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'xcodebuild test-without-building'* ]]
     [[ "$out" == *'-xctestrun'* ]]
     [[ "$out" == *'-only-testing:MyTests/MyClass'* ]]
+    [[ "$out" == *'-skip-testing:MyTests/MyClass/testSlow'* ]]
     [[ "$out" != *'-workspace'* ]]
 }
 
