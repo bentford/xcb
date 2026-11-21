@@ -154,6 +154,7 @@ extension App {
 
     /// Locate the scheme's .app product. Tries DerivedData first (instant, see `AppLocator`),
     /// then an earlier slow lookup, then -showBuildSettings (one call, since each is slow).
+    /// Says which one it used, so the output matches what happened.
     /// The bundle id is read from the app's Info.plist rather than build settings, so
     /// multi-target schemes (e.g. app + embedded framework) don't pick up a sibling's id.
     func resolveBuiltApp() -> BuiltApp? {
@@ -165,6 +166,7 @@ extension App {
 
         if options.fastAppLookup {
             if let path = locator.locate() {
+                echo("\(blue)🔍 Found \(basename(path)) in DerivedData\(reset)")
                 return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
             }
             if let path = cache.path(for: key, fingerprint: locator.fingerprint()) {
@@ -174,7 +176,8 @@ extension App {
             }
         }
 
-        echo("\(blue)🔍 Reading build settings...\(reset)")
+        let reason = options.fastAppLookup ? "couldn't find the app in DerivedData" : "fast app lookup is off"
+        echo("\(blue)🔍 Reading build settings (\(reason))...\(reset)")
         let settings = Shell.capture(xcodebuild("-showBuildSettings")).output
         guard let product = Parsers.appProduct(inBuildSettings: settings),
               !product.name.isEmpty, !product.directory.isEmpty else { return nil }
