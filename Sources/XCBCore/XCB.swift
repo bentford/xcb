@@ -64,9 +64,9 @@ final class App {
         self.config = config
     }
 
-    /// `test coverage --skip-build` reports on an existing .xcresult instead of building.
+    /// `test coverage --last-results` reports on an existing .xcresult instead of running tests.
     var reusesResults: Bool {
-        options.action == .coverage && options.skipBuild
+        options.action == .coverage && options.lastResults
     }
 
     func execute() throws {
@@ -89,13 +89,16 @@ final class App {
             break
         }
 
-        // Warn if --only is used with non-test actions
-        if !options.onlyTest.isEmpty && (![.test, .coverage].contains(options.action) || reusesResults) {
-            echo("\(yellow)⚠ --only is ignored in \(options.action.rawValue) action\(reset)")
+        // Warn about test-run flags when no tests will run
+        let ignoredBecause = reusesResults ? "with --last-results, which doesn't run tests"
+            : "in \(options.action.rawValue) action"
+        let runsTests = [.test, .coverage].contains(options.action) && !reusesResults
+        if !options.onlyTest.isEmpty && !runsTests {
+            echo("\(yellow)⚠ --only is ignored \(ignoredBecause)\(reset)")
             options.onlyTest = ""
         }
-        if options.withoutBuilding && (![.test, .coverage].contains(options.action) || reusesResults) {
-            echo("\(yellow)⚠ --without-building is ignored in \(options.action.rawValue) action\(reset)")
+        if options.withoutBuilding && !runsTests {
+            echo("\(yellow)⚠ --without-building is ignored \(ignoredBecause)\(reset)")
             options.withoutBuilding = false
         }
 

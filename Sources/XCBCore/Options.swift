@@ -24,7 +24,7 @@ struct Options {
 
     var action: Action = .build
     var selectTarget: SelectTarget?
-    var skipBuild = false
+    var lastResults = false
     var withoutBuilding = false
     var detailed = false
     var onlyTest = ""
@@ -149,7 +149,7 @@ extension Options {
             case "-q", "--quiet": quiet = true
             case "-a", "--audible": audible = true
             case "--dry-run": dryRun = true
-            case "--skip-build": skipBuild = true
+            case "--last-results", "--skip-build": lastResults = true  // --skip-build: old name
             case "--without-building": withoutBuilding = true
             case "--no-fast-app-lookup": fastAppLookup = false
             case "--skip-package-updates": skipPackageUpdates = true
@@ -201,7 +201,7 @@ extension Options {
           --subsystem <name>     Log subsystem (\(subsystem.or("app's bundle ID")))
           -c, --category <name>  Log category, repeatable; '*' wildcards allowed (log only)
           --level <level>        Log level: default, info, or debug (log only, default: debug)
-          --skip-build           Skip build, use results from last run (test coverage)
+          --last-results         Show the last test coverage results without running tests (test coverage)
           --without-building     Run tests from the last build for testing (test actions)
           --detailed             File-level coverage breakdown (test coverage)
           --clean                Clean before building (build actions only)
@@ -226,7 +226,7 @@ extension Options {
           xcb test -s MyScheme --only MyTests/MyTestClass
           xcb test -s MyScheme --only MyTests/MyTestClass --without-building
           xcb test coverage -s MyScheme --detailed
-          xcb test coverage --skip-build -s MyScheme
+          xcb test coverage --last-results -s MyScheme
           xcb build -s MyApp
           xcb build run -s MyApp
           xcb run -s MyApp

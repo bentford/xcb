@@ -69,6 +69,11 @@ import Testing
         #expect(options.workspace == "Saved.xcworkspace")
     }
 
+    @Test(arguments: ["--last-results", "--skip-build"])
+    func parsesLastResultsAndItsOldName(flag: String) throws {
+        #expect(try parse("test coverage \(flag)").lastResults)
+    }
+
     @Test func skipsPackageUpdatesOnlyWhenAskedTo() throws {
         #expect(try parse("build").skipPackageUpdates == false)
         #expect(try parse("build --skip-package-updates").skipPackageUpdates)

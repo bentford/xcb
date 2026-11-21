@@ -7,6 +7,8 @@ All notable changes to xcb are documented here. Versions follow [Semantic Versio
 ### Changed
 
 - `build run`, `run` and `log` find the app in seconds instead of minutes on large workspaces. xcb used to run `xcodebuild -showBuildSettings` every time, which loads the whole workspace (over a minute on big ones). It now reads the scheme's Run action and the DerivedData folder Xcode created for this exact workspace path, so worktrees of the same repo never pick up each other's builds. When it can't be sure (custom DerivedData or build location, a scheme that doesn't launch an app, or no matching build) it falls back to build settings and remembers the result in `~/Library/Caches/xcb/app-paths.json`.
+- `--skip-build` is now `--last-results`, which says what it does: show the last test coverage results without running tests. `--skip-build` still works.
+- `--only` and `--without-building` with `--last-results` now say they're ignored because no tests run, instead of "ignored in coverage action".
 
 ### Added
 

@@ -148,16 +148,18 @@ xcb test coverage -s MyApp --filter-scheme
 # Show only targets matching arbitrary text
 xcb test coverage -s MyApp --filter MyModule
 
-# Combine with --skip-build and --detailed
-xcb test coverage --skip-build --filter MyModule --detailed
+# Combine with --last-results and --detailed
+xcb test coverage --last-results --filter MyModule --detailed
 ```
 
-### Show Coverage Without Building
+### Show the Last Coverage Results
 
 ```bash
-# Report on the most recent test results without rebuilding
-xcb test coverage -s MyApp --skip-build
+# Show the most recent test coverage results again, without running tests
+xcb test coverage -s MyApp --last-results
 ```
+
+`--last-results` was called `--skip-build` before, and the old name still works. To run the tests again without compiling, use `--without-building` instead.
 
 ### Stream Logs
 
@@ -269,7 +271,7 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--level` | Log level: `default`, `info`, or `debug` (default: `debug`) |
 | `--only` | Run specific test (`Target/Class[/method]`) |
 | `--detailed` | Show file-level coverage breakdown |
-| `--skip-build` | Report coverage from last build |
+| `--last-results` | Show the last test coverage results without running tests (formerly `--skip-build`) |
 | `--without-building` | Run tests from the last build for testing |
 | `--clean` | Clean before building |
 | `--skip-package-updates` | Don't check remote packages for updates (`SKIP_PACKAGE_UPDATES="1"` in `.xcbrc` makes it the default) |
