@@ -104,7 +104,7 @@ xcb clean -s MyApp
 xcb run -s MyApp
 ```
 
-`build run`, `run` and `log` find the app in Xcode's DerivedData folder for your workspace, using the scheme's Run action (build configuration and app name). Each worktree has its own DerivedData folder, so worktrees never launch each other's builds. If xcb can't be sure it has the right app (custom DerivedData or build location in Xcode's settings, a scheme that doesn't launch an app, or no matching build), it reads `xcodebuild -showBuildSettings` instead, which is slow on large workspaces, and remembers the result in `~/Library/Caches/xcb/app-paths.json`. Pass `--no-fast-app-lookup` to always read build settings.
+`build run`, `run` and `log` find the app in Xcode's DerivedData folder for your workspace, using the scheme's Run action (build configuration and app name). Each worktree has its own DerivedData folder, so worktrees never launch each other's builds. If xcb can't be sure it has the right app (custom DerivedData or build location in Xcode's settings, a scheme that doesn't launch an app, or no matching build), it reads `xcodebuild -showBuildSettings` instead, which is slow on large workspaces, and remembers the result in `~/Library/Caches/xcb/app-paths.json`. xcb says when it uses a remembered path, and looks it up again when the scheme or Xcode's location settings change. Pass `--no-fast-app-lookup` to always read build settings, or add `FAST_APP_LOOKUP="0"` to `.xcbrc` to make that the default (`--fast-app-lookup` turns it back on for one run).
 
 ### Test
 
@@ -233,6 +233,7 @@ DESTINATION_TYPE="simulator"
 SIMULATOR_ID="<UUID>"
 LOG_SUBSYSTEM="com.example.app"   # optional; defaults to the app's bundle ID
 SKIP_PACKAGE_UPDATES="1"          # optional; same as --skip-package-updates on every run
+FAST_APP_LOOKUP="0"               # optional; same as --no-fast-app-lookup on every run
 ```
 
 Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults for a single invocation.
@@ -276,7 +277,8 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--clean` | Clean before building |
 | `--skip-package-updates` | Don't check remote packages for updates (`SKIP_PACKAGE_UPDATES="1"` in `.xcbrc` makes it the default) |
 | `--no-skip-package-updates` | Check remote packages even when `.xcbrc` skips them |
-| `--no-fast-app-lookup` | Find the app with `xcodebuild -showBuildSettings` instead of DerivedData |
+| `--no-fast-app-lookup` | Find the app with `xcodebuild -showBuildSettings` instead of DerivedData (`FAST_APP_LOOKUP="0"` in `.xcbrc` makes it the default) |
+| `--fast-app-lookup` | Find the app in DerivedData even when `.xcbrc` turns it off |
 | `--dry-run` | Show commands without executing |
 | `-a`, `--audible` | Play a sound when the command finishes |
 | `--force` | Skip confirmation prompts |

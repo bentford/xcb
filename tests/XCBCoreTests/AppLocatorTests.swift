@@ -377,17 +377,81 @@ private func launchScheme(
 }
 
 @Suite struct AppPathCacheTests {
+    let key = AppPathCache.key(workspace: "/repo/App.xcworkspace", scheme: "App", platform: "iphonesimulator")
+
     @Test func remembersAppsWhileTheyExist() throws {
         let sandbox = try Sandbox()
         let cache = AppPathCache(file: "\(sandbox.root)/cache/app-paths.json")
         let app = "\(sandbox.root)/Products/App.app"
-        let key = AppPathCache.key(workspace: "/repo/App.xcworkspace", scheme: "App", platform: "iphonesimulator")
 
-        cache.store(app, for: key)
-        #expect(cache.path(for: key) == nil)  // not built yet
+        cache.store(app, for: key, fingerprint: "f1")
+        #expect(cache.path(for: key, fingerprint: "f1") == nil)  // not built yet
 
         try sandbox.write("\(app)/Info.plist", "<plist/>")
-        #expect(cache.path(for: key) == app)
-        #expect(cache.path(for: AppPathCache.key(workspace: "/other/App.xcworkspace", scheme: "App", platform: "iphonesimulator")) == nil)
+        #expect(cache.path(for: key, fingerprint: "f1") == app)
+        let other = AppPathCache.key(workspace: "/other/App.xcworkspace", scheme: "App", platform: "iphonesimulator")
+        #expect(cache.path(for: other, fingerprint: "f1") == nil)
+    }
+
+    @Test func ignoresAppsSavedWithADifferentFingerprint() throws {
+        let sandbox = try Sandbox()
+        let cache = AppPathCache(file: "\(sandbox.root)/cache/app-paths.json")
+        let debug = "\(sandbox.root)/Products/Debug-iphonesimulator/App.app"
+        try sandbox.write("\(debug)/Info.plist", "<plist/>")
+
+        cache.store(debug, for: key, fingerprint: "debug")
+        #expect(cache.path(for: key, fingerprint: "staging") == nil)
+    }
+
+    @Test func dropsEntriesInTheOldFormat() throws {
+        let sandbox = try Sandbox()
+        let file = "\(sandbox.root)/cache/app-paths.json"
+        let app = "\(sandbox.root)/Products/App.app"
+        try sandbox.write("\(app)/Info.plist", "<plist/>")
+        try sandbox.write(file, #"{"\#(key)": "\#(app)"}"#)
+        let cache = AppPathCache(file: file)
+
+        #expect(cache.path(for: key, fingerprint: "f1") == nil)
+        cache.store(app, for: key, fingerprint: "f1")
+        #expect(cache.path(for: key, fingerprint: "f1") == app)
+    }
+}
+
+@Suite struct FingerprintTests {
+    @Test func changesWithTheSchemesRunAction() throws {
+        let sandbox = try Sandbox()
+        let workspace = try sandbox.repo("repo")
+        let before = sandbox.locator(workspace).fingerprint()
+
+        try sandbox.write("\(sandbox.root)/repo/Apps/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme",
+                          launchScheme(configuration: "Debug-Staging"))
+        #expect(sandbox.locator(workspace).fingerprint() != before)
+    }
+
+    @Test func staysTheSameWhenASchemeIsRewrittenUnchanged() throws {
+        let sandbox = try Sandbox()
+        let workspace = try sandbox.repo("repo")
+        let before = sandbox.locator(workspace).fingerprint()
+
+        let scheme = "\(sandbox.root)/repo/Apps/App.xcodeproj/xcshareddata/xcschemes/App.xcscheme"
+        try sandbox.write(scheme, launchScheme())  // e.g. a branch switch
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: scheme)
+        #expect(sandbox.locator(workspace).fingerprint() == before)
+    }
+
+    @Test func changesWithXcodesBuildLocationsOnly() throws {
+        let sandbox = try Sandbox()
+        let workspace = try sandbox.repo("repo")
+        let base = sandbox.locator(workspace, defaults: ["IDEBuildLocationStyle": "Unique"]).fingerprint()
+
+        for setting: [String: Any] in [
+            ["IDEBuildLocationStyle": "Custom"],
+            ["IDEBuildLocationStyle": "Unique", "IDECustomDerivedDataLocation": "/Volumes/DD"],
+            ["IDEBuildLocationStyle": "Unique", "IDESharedBuildFolderName": "Build"],
+        ] {
+            #expect(sandbox.locator(workspace, defaults: setting).fingerprint() != base)
+        }
+        let unrelated: [String: Any] = ["IDEBuildLocationStyle": "Unique", "DVTTextShowLineNumbers": true]
+        #expect(sandbox.locator(workspace, defaults: unrelated).fingerprint() == base)
     }
 }

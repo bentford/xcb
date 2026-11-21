@@ -93,6 +93,24 @@ import Testing
         #expect(options.skipPackageUpdates == false)
     }
 
+    @Test(arguments: [("0", false), ("false", false), ("NO", false), ("off", false), ("1", true), ("", true), ("nope", true)])
+    func loadsFastAppLookupFromConfig(value: String, expected: Bool) {
+        var options = Options()
+        options.apply(config: ["FAST_APP_LOOKUP": value])
+        #expect(options.fastAppLookup == expected)
+    }
+
+    @Test func fastAppLookupFlagsOverrideConfig() throws {
+        var off = Options()
+        off.apply(config: ["FAST_APP_LOOKUP": "0"])
+        try off.parse(["run", "--fast-app-lookup"])
+        #expect(off.fastAppLookup)
+
+        var on = Options()
+        try on.parse(["run", "--no-fast-app-lookup"])
+        #expect(on.fastAppLookup == false)
+    }
+
     @Test(arguments: ["", "foobar", "build nope", "test nope", "select", "select nope", "run extra", "log extra", "log -c", "log --level", "log --level error", "build --bogus", "build -s", "build --help"])
     func rejectsInvalidCommandLines(args: String) {
         #expect(throws: UsageError.self) { try parse(args) }

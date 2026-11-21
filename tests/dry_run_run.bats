@@ -41,3 +41,14 @@ assert_success() {
     run "$XCB" run "${STD_ARGS[@]}" --no-fast-app-lookup --dry-run
     assert_success
 }
+
+@test "run accepts --fast-app-lookup" {
+    run "$XCB" run "${STD_ARGS[@]}" --fast-app-lookup --dry-run
+    assert_success
+}
+
+@test "run accepts FAST_APP_LOOKUP in .xcbrc" {
+    echo 'FAST_APP_LOOKUP="0"' > .xcbrc
+    run "$XCB" run "${STD_ARGS[@]}" --dry-run
+    assert_success
+}

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Finds a scheme's built .app without `xcodebuild -showBuildSettings`, which loads the
@@ -140,6 +141,27 @@ struct AppLocator {
         return walk(root, base: workspaceDir)
     }
 
+    /// What the app's location depends on besides build settings: the contents of the
+    /// scheme files (Run configuration and product) and Xcode's build location settings.
+    /// A path saved in `AppPathCache` is only trusted while this stays the same. Contents
+    /// rather than modification dates, so switching branches without changing the scheme
+    /// doesn't cost a slow lookup.
+    func fingerprint() -> String {
+        let schemes = schemeFiles().sorted().map { path in
+            let contents = FileManager.default.contents(atPath: path) ?? Data()
+            return "\(path) \(SHA256.hash(data: contents).hex)"
+        }
+        let locations = xcodeDefaults.keys.filter(Self.isLocationSetting).sorted().map { key in
+            "\(key)=\(xcodeDefaults[key].map { "\($0)" } ?? "")"
+        }
+        return SHA256.hash(data: Data((schemes + locations).joined(separator: "\n").utf8)).hex
+    }
+
+    /// Xcode → Settings → Locations: DerivedData and build folder settings.
+    static func isLocationSetting(_ key: String) -> Bool {
+        key == "IDEBuildLocationStyle" || key.hasPrefix("IDECustom") || key.hasPrefix("IDESharedBuild")
+    }
+
     // MARK: - DerivedData
 
     /// The DerivedData folder whose `info.plist` names this workspace. An exact path match
@@ -227,32 +249,46 @@ struct AppLocator {
 }
 
 /// App paths found the slow way, so unusual setups only pay for `-showBuildSettings` once.
-/// Keyed by workspace, scheme and platform; an entry is used only while its app exists.
+/// Keyed by workspace, scheme and platform. An entry is used only while its app exists and
+/// the `AppLocator.fingerprint()` it was saved with still matches, so changing the scheme's
+/// Run configuration or Xcode's build locations triggers a fresh lookup.
 struct AppPathCache {
     var file = NSHomeDirectory() + "/Library/Caches/xcb/app-paths.json"
+
+    struct Entry: Codable, Equatable {
+        let path: String
+        let fingerprint: String
+    }
 
     static func key(workspace: String, scheme: String, platform: String) -> String {
         "\(workspace)|\(scheme)|\(platform)"
     }
 
-    func path(for key: String) -> String? {
-        guard let path = load()[key], FileManager.default.fileExists(atPath: "\(path)/Info.plist") else { return nil }
-        return path
+    func path(for key: String, fingerprint: String) -> String? {
+        guard let entry = load()[key], entry.fingerprint == fingerprint,
+              FileManager.default.fileExists(atPath: "\(entry.path)/Info.plist") else { return nil }
+        return entry.path
     }
 
-    func store(_ path: String, for key: String) {
+    func store(_ path: String, for key: String, fingerprint: String) {
         var entries = load()
-        entries[key] = path
-        guard let data = try? JSONSerialization.data(withJSONObject: entries, options: [.prettyPrinted, .sortedKeys])
-        else { return }
+        entries[key] = Entry(path: path, fingerprint: fingerprint)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(entries) else { return }
         let directory = (file as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         try? data.write(to: URL(fileURLWithPath: file), options: .atomic)
     }
 
-    private func load() -> [String: String] {
+    /// Entries in an older or unreadable format are dropped; they're refilled the slow way.
+    private func load() -> [String: Entry] {
         guard let data = FileManager.default.contents(atPath: file),
-              let entries = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return [:] }
+              let entries = try? JSONDecoder().decode([String: Entry].self, from: data) else { return [:] }
         return entries
     }
+}
+
+private extension Digest {
+    var hex: String { map { String(format: "%02x", $0) }.joined() }
 }

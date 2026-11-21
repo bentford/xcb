@@ -159,13 +159,19 @@ extension App {
     func resolveBuiltApp() -> BuiltApp? {
         let workspace = URL(fileURLWithPath: options.workspace).standardizedFileURL.path
         let platform = options.destinationType == "device" ? "iphoneos" : "iphonesimulator"
+        let locator = AppLocator(workspace: workspace, scheme: options.scheme, platform: platform)
         let cache = AppPathCache()
         let key = AppPathCache.key(workspace: workspace, scheme: options.scheme, platform: platform)
 
-        if options.fastAppLookup,
-           let path = AppLocator(workspace: workspace, scheme: options.scheme, platform: platform).locate()
-               ?? cache.path(for: key) {
-            return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
+        if options.fastAppLookup {
+            if let path = locator.locate() {
+                return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
+            }
+            if let path = cache.path(for: key, fingerprint: locator.fingerprint()) {
+                echo("\(blue)📌 Using the app path saved from an earlier build settings lookup\(reset)")
+                echo("\(blue)   Pass --no-fast-app-lookup to look it up again\(reset)")
+                return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
+            }
         }
 
         echo("\(blue)🔍 Reading build settings...\(reset)")
@@ -173,7 +179,7 @@ extension App {
         guard let product = Parsers.appProduct(inBuildSettings: settings),
               !product.name.isEmpty, !product.directory.isEmpty else { return nil }
         let path = "\(product.directory)/\(product.name)"
-        cache.store(path, for: key)
+        cache.store(path, for: key, fingerprint: locator.fingerprint())
         return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
     }
 

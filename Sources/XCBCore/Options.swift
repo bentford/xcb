@@ -40,6 +40,16 @@ struct Options {
     var categories: [String] = []
     var logLevel = "debug"
 
+    /// An on/off `.xcbrc` value: 1/true/yes/on or 0/false/no/off, any case. Nil for anything
+    /// else, so a typo keeps the default.
+    static func flag(_ value: String?) -> Bool? {
+        switch value?.lowercased() {
+        case "1", "true", "yes", "on": true
+        case "0", "false", "no", "off": false
+        default: nil
+        }
+    }
+
     /// Apply saved defaults from `.xcbrc`.
     mutating func apply(config: [String: String]) {
         workspace = config["WORKSPACE"] ?? workspace
@@ -51,9 +61,8 @@ struct Options {
         deviceID = config["DEVICE_ID"] ?? deviceID
         deviceName = config["DEVICE_NAME"] ?? deviceName
         subsystem = config["LOG_SUBSYSTEM"] ?? subsystem
-        if let value = config["SKIP_PACKAGE_UPDATES"] {
-            skipPackageUpdates = ["1", "true", "yes"].contains(value.lowercased())
-        }
+        skipPackageUpdates = Self.flag(config["SKIP_PACKAGE_UPDATES"]) ?? skipPackageUpdates
+        fastAppLookup = Self.flag(config["FAST_APP_LOOKUP"]) ?? fastAppLookup
 
         // Backward compatibility: migrate IPHONE_NAME from old .xcbrc files
         let legacyName = config["IPHONE_NAME"] ?? ""
@@ -152,6 +161,7 @@ extension Options {
             case "--last-results", "--skip-build": lastResults = true  // --skip-build: old name
             case "--without-building": withoutBuilding = true
             case "--no-fast-app-lookup": fastAppLookup = false
+            case "--fast-app-lookup": fastAppLookup = true
             case "--skip-package-updates": skipPackageUpdates = true
             case "--no-skip-package-updates": skipPackageUpdates = false
             case "--only": onlyTest = try value()
@@ -205,7 +215,8 @@ extension Options {
           --without-building     Run tests from the last build for testing (test actions)
           --detailed             File-level coverage breakdown (test coverage)
           --clean                Clean before building (build actions only)
-          --no-fast-app-lookup   Find the app with xcodebuild -showBuildSettings (slow) instead of DerivedData (run actions)
+          --no-fast-app-lookup   Find the app with xcodebuild -showBuildSettings (slow) instead of DerivedData (run actions; save with FAST_APP_LOOKUP="0" in .xcbrc)
+          --fast-app-lookup      Find the app in DerivedData even when .xcbrc turns it off
           --skip-package-updates Don't check remote packages for updates (save with SKIP_PACKAGE_UPDATES in .xcbrc)
           --no-skip-package-updates  Check remote packages even when .xcbrc skips them
           --filter <text>        Filter by text (select scheme, test coverage)
