@@ -110,8 +110,8 @@ extension App {
         let platform = options.destinationType == "device" ? "iphoneos" : "iphonesimulator"
         let locator = AppLocator(workspace: workspace, scheme: options.scheme, platform: platform)
 
-        var testRun = locator.testRun(coverage: coverage)
-        if testRun == nil {
+        var lookup = locator.testRun(coverage: coverage)
+        if lookup == .notBuilt {
             echo("\(blue)🔨 No build for testing yet. Building once so later runs can skip the build...\(reset)")
             let logPath = buildLogPath()
             let status = try runBeautified(xcodebuild("build-for-testing", quiet: options.quiet, coverageFlag), logPath: logPath)
@@ -123,11 +123,12 @@ extension App {
             try? FileManager.default.removeItem(atPath: logPath)
             // We just built it with the right coverage setting, so take the newest one as is,
             // rather than building again if the coverage check doesn't recognize it.
-            testRun = locator.testRun(coverage: false)
+            lookup = locator.testRun(coverage: false)
         }
-        guard let testRun else {
-            // Custom DerivedData location: the products exist, so let xcodebuild find them via the scheme.
-            echo("\(yellow)⚠ No .xctestrun found in DerivedData; running from the scheme instead\(reset)")
+        guard case .found(let testRun) = lookup else {
+            // Custom build locations or an unreadable scheme: xcodebuild finds the right
+            // products and test plan itself through the scheme, just more slowly.
+            echo("\(yellow)⚠ Couldn't tell which .xctestrun to use; running from the scheme instead\(reset)")
             return xcodebuild("test-without-building", quiet: options.quiet, coverageFlag + extra)
         }
         echo("   Test run: \(basename(testRun))")

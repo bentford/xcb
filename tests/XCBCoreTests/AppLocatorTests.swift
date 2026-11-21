@@ -54,9 +54,10 @@ private final class Sandbox {
         return appPath
     }
 
-    func locator(_ workspace: String, platform: String = "iphonesimulator", defaults: [String: Any] = [:])
-        -> AppLocator {
-        var locator = AppLocator(workspace: workspace, scheme: "App", platform: platform)
+    func locator(
+        _ workspace: String, scheme: String = "App", platform: String = "iphonesimulator", defaults: [String: Any] = [:]
+    ) -> AppLocator {
+        var locator = AppLocator(workspace: workspace, scheme: scheme, platform: platform)
         locator.derivedDataRoot = derivedData
         locator.xcodeDefaults = defaults
         locator.userName = "tester"
@@ -65,12 +66,12 @@ private final class Sandbox {
 }
 
 private func launchScheme(
-    configuration: String = "Debug", product: String = "App.app", extra: String = ""
+    configuration: String = "Debug", product: String = "App.app", extra: String = "", testPlans: String = ""
 ) -> String {
     """
     <?xml version="1.0" encoding="UTF-8"?>
     <Scheme version = "1.7">
-       <TestAction buildConfiguration = "Testing"></TestAction>
+       <TestAction buildConfiguration = "Testing">\(testPlans)</TestAction>
        <LaunchAction buildConfiguration = "\(configuration)" \(extra)>
           <BuildableProductRunnable runnableDebuggingMode = "0">
              <BuildableReference BuildableName = "\(product)" BlueprintName = "App"
@@ -216,17 +217,67 @@ private func launchScheme(
         #expect(AppLocator.testRunHasCoverage(path) == expected)
     }
 
+    private func plans(_ plans: [(name: String, isDefault: Bool)]) -> String {
+        "<TestPlans>" + plans.map { plan in
+            #"<TestPlanReference reference = "container:Plans/\#(plan.name).xctestplan"\#(plan.isDefault ? #" default = "YES""# : "")></TestPlanReference>"#
+        }.joined() + "</TestPlans>"
+    }
+
     @Test func findsTheNewestTestRunForTheSchemeAndPlatform() throws {
         let sandbox = try Sandbox()
         let workspace = try sandbox.repo("repo")
         try sandbox.derivedData(for: workspace, folder: "App-aaaa", app: nil)
         _ = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_iphonesimulator26.0-arm64.xctestrun", coverage: false, modified: .distantPast)
-        let newest = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_Unit_iphonesimulator27.2-arm64.xctestrun", coverage: false, modified: Date())
+        let newest = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_iphonesimulator27.2-arm64.xctestrun", coverage: false, modified: Date(timeIntervalSinceNow: -60))
         let device = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_iphoneos27.2-arm64.xctestrun", coverage: false, modified: Date())
         _ = try writeTestRun(sandbox, folder: "App-aaaa", name: "Other_iphonesimulator27.2-arm64.xctestrun", coverage: false, modified: Date())
 
-        #expect(sandbox.locator(workspace).testRun(coverage: false) == newest)
-        #expect(sandbox.locator(workspace, platform: "iphoneos").testRun(coverage: false) == device)
+        #expect(sandbox.locator(workspace).testRun(coverage: false) == .found(newest))
+        #expect(sandbox.locator(workspace, platform: "iphoneos").testRun(coverage: false) == .found(device))
+    }
+
+    @Test func neverPicksASchemeWhoseNameStartsTheSame() throws {
+        let sandbox = try Sandbox()
+        let workspace = try sandbox.repo("repo")
+        try sandbox.derivedData(for: workspace, folder: "App-aaaa", app: nil)
+        let app = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_iphonesimulator27.2.xctestrun", coverage: false, modified: .distantPast)
+        _ = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_Staging_iphonesimulator27.2.xctestrun", coverage: false, modified: Date())
+
+        #expect(sandbox.locator(workspace).testRun(coverage: false) == .found(app))
+    }
+
+    @Test func usesTheSchemesDefaultTestPlan() throws {
+        let sandbox = try Sandbox()
+        let scheme = launchScheme(testPlans: plans([("UI", false), ("Unit", true)]))
+        let workspace = try sandbox.repo("repo", scheme: scheme)
+        try sandbox.derivedData(for: workspace, folder: "App-aaaa", app: nil)
+        let unit = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_Unit_iphonesimulator27.2-arm64.xctestrun", coverage: false, modified: .distantPast)
+        _ = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_UI_iphonesimulator27.2-arm64.xctestrun", coverage: false, modified: Date())
+
+        #expect(sandbox.locator(workspace).testRun(coverage: false) == .found(unit))
+    }
+
+    @Test func isNotBuiltUntilThereIsAMatchingTestRun() throws {
+        let sandbox = try Sandbox()
+        let workspace = try sandbox.repo("repo")
+        #expect(sandbox.locator(workspace).testRun(coverage: false) == .notBuilt)  // no DerivedData folder
+
+        try sandbox.derivedData(for: workspace, folder: "App-aaaa", app: nil)
+        _ = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_Staging_iphonesimulator27.2.xctestrun", coverage: false, modified: Date())
+        #expect(sandbox.locator(workspace).testRun(coverage: false) == .notBuilt)
+    }
+
+    @Test func isUnknownWhenTheRightFileCannotBeWorkedOut() throws {
+        let sandbox = try Sandbox()
+        let noDefault = try sandbox.repo("no-default", scheme: launchScheme(testPlans: plans([("Unit", false), ("UI", false)])))
+        let standard = try sandbox.repo("repo")
+        for workspace in [noDefault, standard] {
+            try sandbox.derivedData(for: workspace, folder: "App-\(UUID().uuidString)", app: nil)
+        }
+
+        #expect(sandbox.locator(noDefault).testRun(coverage: false) == .unknown)
+        #expect(sandbox.locator(standard, defaults: ["IDECustomDerivedDataLocation": "/Volumes/DD"]).testRun(coverage: false) == .unknown)
+        #expect(sandbox.locator(standard, scheme: "Missing").testRun(coverage: false) == .unknown)
     }
 
     @Test func coverageRunsOnlyUseTestRunsBuiltWithCoverage() throws {
@@ -235,11 +286,11 @@ private func launchScheme(
         try sandbox.derivedData(for: workspace, folder: "App-aaaa", app: nil)
         let plain = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_iphonesimulator27.2-arm64.xctestrun", coverage: false, modified: Date())
 
-        #expect(sandbox.locator(workspace).testRun(coverage: true) == nil)
-        #expect(sandbox.locator(workspace).testRun(coverage: false) == plain)
+        #expect(sandbox.locator(workspace).testRun(coverage: true) == .notBuilt)
+        #expect(sandbox.locator(workspace).testRun(coverage: false) == .found(plain))
 
         let covered = try writeTestRun(sandbox, folder: "App-aaaa", name: "App_iphonesimulator27.2-arm64.xctestrun", coverage: true, modified: Date())
-        #expect(sandbox.locator(workspace).testRun(coverage: true) == covered)
+        #expect(sandbox.locator(workspace).testRun(coverage: true) == .found(covered))
     }
 
     @Test func ignoresOtherWorktreesTestRuns() throws {
@@ -249,7 +300,31 @@ private func launchScheme(
         try sandbox.derivedData(for: tree2, folder: "App-bbbb", app: nil)
         _ = try writeTestRun(sandbox, folder: "App-bbbb", name: "App_iphonesimulator27.2-arm64.xctestrun", coverage: true, modified: Date())
 
-        #expect(sandbox.locator(tree1).testRun(coverage: false) == nil)
+        #expect(sandbox.locator(tree1).testRun(coverage: false) == .notBuilt)
+    }
+
+    @Test(arguments: [
+        ("App_iphonesimulator27.2.xctestrun", AppLocator.TestPlan.none, "iphonesimulator", true),
+        ("App_iphonesimulator27.2-arm64.xctestrun", .none, "iphonesimulator", true),
+        ("App_iphoneos27.2-arm64.xctestrun", .none, "iphoneos", true),
+        ("App_iphoneos27.2-arm64.xctestrun", .none, "iphonesimulator", false),
+        ("App_Staging_iphonesimulator27.2.xctestrun", .none, "iphonesimulator", false),
+        ("App_Unit_iphonesimulator27.2.xctestrun", .named("Unit"), "iphonesimulator", true),
+        ("App_UI_iphonesimulator27.2.xctestrun", .named("Unit"), "iphonesimulator", false),
+        ("App_Unit_iphonesimulator27.2.xctestrun", .none, "iphonesimulator", false),
+        ("App_iphonesimulator27.2.xctestrun.bak", .none, "iphonesimulator", false),
+    ])
+    func matchesTheExactTestRunName(name: String, plan: AppLocator.TestPlan, platform: String, expected: Bool) {
+        #expect(AppLocator.isTestRun(name, scheme: "App", plan: plan, platform: platform) == expected)
+    }
+
+    @Test func readsTheDefaultTestPlanFromTheScheme() {
+        func plan(_ scheme: String) -> AppLocator.TestPlan? { AppLocator.testPlan(inScheme: Data(scheme.utf8)) }
+
+        #expect(plan(launchScheme()) == AppLocator.TestPlan.none)
+        #expect(plan(launchScheme(testPlans: plans([("UI", false), ("AllTests", true)]))) == .named("AllTests"))
+        #expect(plan(launchScheme(testPlans: plans([("Unit", false)]))) == nil)
+        #expect(plan("not xml") == nil)
     }
 }
 

@@ -44,12 +44,42 @@ struct AppLocator {
     /// The scheme's Run action product. Nil if the scheme isn't found, doesn't launch an
     /// .app, or several schemes with this name disagree.
     func launchProduct() -> LaunchProduct? {
-        let products = schemeFiles().map { path in
-            FileManager.default.contents(atPath: path).flatMap(Self.launchProduct(inScheme:))
-        }
-        guard let first = products.first, let product = first,
-              products.allSatisfy({ $0 == product }) else { return nil }
-        return product
+        fromSchemes(Self.launchProduct(inScheme:))
+    }
+
+    /// The scheme's default test plan. Nil if the scheme isn't found, its test plans
+    /// can't be read, or several schemes with this name disagree.
+    func testPlan() -> TestPlan? {
+        fromSchemes(Self.testPlan(inScheme:))
+    }
+
+    /// What `parse` reads from every scheme file with this name, if they all agree.
+    private func fromSchemes<T: Equatable>(_ parse: (Data) -> T?) -> T? {
+        let values = schemeFiles().map { path in FileManager.default.contents(atPath: path).flatMap(parse) }
+        guard let first = values.first, let value = first, values.allSatisfy({ $0 == value }) else { return nil }
+        return value
+    }
+
+    enum TestPlan: Equatable {
+        /// The scheme lists its test targets directly.
+        case none
+        case named(String)
+    }
+
+    /// The Test action's default test plan, e.g. `AllTests` for
+    /// `<TestPlanReference reference = "container:AllTests.xctestplan" default = "YES">`.
+    /// Nil when the scheme has test plans but none is marked as the default.
+    static func testPlan(inScheme data: Data) -> TestPlan? {
+        guard let document = try? XMLDocument(data: data) else { return nil }
+        let references = ((try? document.nodes(forXPath: "/Scheme/TestAction/TestPlans/TestPlanReference")) ?? [])
+            .compactMap { $0 as? XMLElement }
+        guard !references.isEmpty else { return TestPlan.none }
+        guard let reference = references.first(where: { $0.attribute(forName: "default")?.stringValue == "YES" })?
+                .attribute(forName: "reference")?.stringValue,
+              let colon = reference.firstIndex(of: ":") else { return nil }
+        let file = String(reference[reference.index(after: colon)...])
+        let name = ((file as NSString).lastPathComponent as NSString).deletingPathExtension
+        return name.isEmpty ? nil : .named(name)
     }
 
     static func launchProduct(inScheme data: Data) -> LaunchProduct? {
@@ -135,18 +165,42 @@ struct AppLocator {
 
     // MARK: - Test runs
 
-    /// The newest `.xctestrun` for this scheme and platform, written by `build-for-testing`
-    /// (`<Scheme>[_<TestPlan>]_<platform><sdk>-<arch>.xctestrun`). With `coverage`, only one
-    /// built with code coverage counts, since coverage can't be turned on at run time.
-    func testRun(coverage: Bool) -> String? {
-        guard Self.usesDefaultBuildLocations(xcodeDefaults), let folder = derivedDataFolder() else { return nil }
+    enum TestRunLookup: Equatable {
+        case found(String)
+        /// Nothing built for testing yet (with coverage, when `coverage` was asked for).
+        case notBuilt
+        /// Can't tell which file is right: custom build locations, or a scheme whose test
+        /// plan can't be read. Building wouldn't change that.
+        case unknown
+    }
+
+    /// The newest `.xctestrun` for this scheme's default test plan and platform, written by
+    /// `build-for-testing` as `<Scheme>[_<TestPlan>]_<platform><sdk>[-<arch>].xctestrun`.
+    /// The exact name is built from the scheme, so another scheme (`App_Staging` for `App`)
+    /// or another test plan never matches. With `coverage`, only one built with code
+    /// coverage counts, since coverage can't be turned on at run time.
+    func testRun(coverage: Bool) -> TestRunLookup {
+        guard Self.usesDefaultBuildLocations(xcodeDefaults), let plan = testPlan() else { return .unknown }
+        guard let folder = derivedDataFolder() else { return .notBuilt }
         let products = "\(folder)/Build/Products"
         let names = (try? FileManager.default.contentsOfDirectory(atPath: products)) ?? []
-        return names
-            .filter { $0.hasPrefix("\(scheme)_") && $0.hasSuffix(".xctestrun") && $0.contains("_\(platform)") }
+        let newest = names
+            .filter { Self.isTestRun($0, scheme: scheme, plan: plan, platform: platform) }
             .map { "\(products)/\($0)" }
             .filter { !coverage || Self.testRunHasCoverage($0) }
             .max { (modificationDate($0) ?? .distantPast) < (modificationDate($1) ?? .distantPast) }
+        return newest.map(TestRunLookup.found) ?? .notBuilt
+    }
+
+    /// Whether `name` is the `.xctestrun` for this scheme, test plan and platform: the exact
+    /// prefix followed by the SDK version (`27.2`), so `iphoneos` never matches `iphonesimulator`.
+    static func isTestRun(_ name: String, scheme: String, plan: TestPlan, platform: String) -> Bool {
+        let prefix = switch plan {
+        case .none: "\(scheme)_\(platform)"
+        case .named(let plan): "\(scheme)_\(plan)_\(platform)"
+        }
+        guard name.hasPrefix(prefix), name.hasSuffix(".xctestrun") else { return false }
+        return name.dropFirst(prefix.count).first?.isNumber == true
     }
 
     /// Whether a `.xctestrun` was built with code coverage. Xcode lists the instrumented
