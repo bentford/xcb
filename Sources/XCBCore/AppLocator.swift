@@ -25,11 +25,22 @@ struct AppLocator {
     }
 
     func locate() -> String? {
-        guard Self.usesDefaultBuildLocations(xcodeDefaults),
+        guard usesDefaultLocations(),
               let product = launchProduct(),
               let folder = derivedDataFolder() else { return nil }
         let app = "\(folder)/Build/Products/\(product.configuration)-\(platform)/\(product.name)"
         return FileManager.default.fileExists(atPath: "\(app)/Info.plist") ? app : nil
+    }
+
+    /// Whether products go to the default DerivedData folder: neither Xcode's settings nor
+    /// this workspace's own settings choose another location.
+    func usesDefaultLocations() -> Bool {
+        Self.usesDefaultBuildLocations(xcodeDefaults) && workspaceSettingsFiles().allSatisfy { path in
+            guard let data = FileManager.default.contents(atPath: path),
+                  let settings = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+            else { return false }  // can't read it, so can't rule out a custom location
+            return Self.usesDefaultWorkspaceLocations(settings)
+        }
     }
 
     /// Custom DerivedData or build locations (Xcode → Settings → Locations) put products
@@ -38,6 +49,21 @@ struct AppLocator {
         guard defaults["IDECustomDerivedDataLocation"] == nil else { return false }
         let style = defaults["IDEBuildLocationStyle"] as? String
         return style == nil || style == "Unique"
+    }
+
+    /// The same for one workspace (File → Workspace Settings), which can override Xcode's
+    /// settings, e.g. a `DerivedData` folder inside the repo.
+    static func usesDefaultWorkspaceLocations(_ settings: [String: Any]) -> Bool {
+        let build = settings["BuildLocationStyle"] as? String
+        let derivedData = settings["DerivedDataLocationStyle"] as? String
+        return (build == nil || build == "UseAppPreferences") && (derivedData == nil || derivedData == "Default")
+    }
+
+    /// The workspace's shared and per-user `WorkspaceSettings.xcsettings` that exist.
+    func workspaceSettingsFiles() -> [String] {
+        ["\(workspace)/xcshareddata", "\(workspace)/xcuserdata/\(userName).xcuserdatad"]
+            .map { "\($0)/WorkspaceSettings.xcsettings" }
+            .filter { FileManager.default.fileExists(atPath: $0) }
     }
 
     // MARK: - Scheme
@@ -142,19 +168,20 @@ struct AppLocator {
     }
 
     /// What the app's location depends on besides build settings: the contents of the
-    /// scheme files (Run configuration and product) and Xcode's build location settings.
+    /// scheme files (Run configuration and product), the workspace's settings files, and
+    /// Xcode's build location settings.
     /// A path saved in `AppPathCache` is only trusted while this stays the same. Contents
     /// rather than modification dates, so switching branches without changing the scheme
     /// doesn't cost a slow lookup.
     func fingerprint() -> String {
-        let schemes = schemeFiles().sorted().map { path in
+        let files = (schemeFiles() + workspaceSettingsFiles()).sorted().map { path in
             let contents = FileManager.default.contents(atPath: path) ?? Data()
             return "\(path) \(SHA256.hash(data: contents).hex)"
         }
         let locations = xcodeDefaults.keys.filter(Self.isLocationSetting).sorted().map { key in
             "\(key)=\(xcodeDefaults[key].map { "\($0)" } ?? "")"
         }
-        return SHA256.hash(data: Data((schemes + locations).joined(separator: "\n").utf8)).hex
+        return SHA256.hash(data: Data((files + locations).joined(separator: "\n").utf8)).hex
     }
 
     /// Xcode → Settings → Locations: DerivedData and build folder settings.
@@ -202,7 +229,7 @@ struct AppLocator {
     /// or another test plan never matches. With `coverage`, only one built with code
     /// coverage counts, since coverage can't be turned on at run time.
     func testRun(coverage: Bool) -> TestRunLookup {
-        guard Self.usesDefaultBuildLocations(xcodeDefaults), let plan = testPlan() else { return .unknown }
+        guard usesDefaultLocations(), let plan = testPlan() else { return .unknown }
         guard let folder = derivedDataFolder() else { return .notBuilt }
         let products = "\(folder)/Build/Products"
         let names = (try? FileManager.default.contentsOfDirectory(atPath: products)) ?? []

@@ -165,6 +165,41 @@ private func launchScheme(
         #expect(sandbox.locator(workspace, defaults: ["IDEBuildLocationStyle": "DeterminedByTargets"]).locate() == nil)
     }
 
+    private func workspaceSettings(_ settings: [String: Any]) throws -> Data {
+        try PropertyListSerialization.data(fromPropertyList: settings, format: .xml, options: 0)
+    }
+
+    @Test func stepsAsideForWorkspaceBuildLocations() throws {
+        let sandbox = try Sandbox()
+        let workspace = try sandbox.repo("repo")
+        try sandbox.derivedData(for: workspace, folder: "App-aaaa")
+        let shared = "\(workspace)/xcshareddata/WorkspaceSettings.xcsettings"
+        let user = "\(workspace)/xcuserdata/tester.xcuserdatad/WorkspaceSettings.xcsettings"
+        for file in [shared, user] {
+            try FileManager.default.createDirectory(atPath: (file as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        }
+
+        // Settings that don't move the build, like the ones Xcode writes by default
+        try workspaceSettings(["PreviewsEnabled": false, "BuildLocationStyle": "UseAppPreferences",
+                               "DerivedDataLocationStyle": "Default"]).write(to: URL(fileURLWithPath: shared))
+        #expect(sandbox.locator(workspace).locate() != nil)
+
+        for (file, settings) in [
+            (shared, ["DerivedDataLocationStyle": "WorkspaceRelativePath", "DerivedDataCustomLocation": "DerivedData"]),
+            (user, ["DerivedDataLocationStyle": "AbsolutePath", "DerivedDataCustomLocation": "/Volumes/DD"]),
+            (user, ["BuildLocationStyle": "Custom"]),
+        ] {
+            try? FileManager.default.removeItem(atPath: shared)
+            try? FileManager.default.removeItem(atPath: user)
+            try workspaceSettings(settings).write(to: URL(fileURLWithPath: file))
+            #expect(sandbox.locator(workspace).locate() == nil)
+            #expect(sandbox.locator(workspace).testRun(coverage: false) == .unknown)
+        }
+
+        try "not a plist".write(toFile: user, atomically: true, encoding: .utf8)
+        #expect(sandbox.locator(workspace).locate() == nil)
+    }
+
     @Test func stepsAsideWhenSchemesWithTheSameNameDisagree() throws {
         let sandbox = try Sandbox()
         let workspace = try sandbox.repo("repo")
@@ -437,6 +472,15 @@ private func launchScheme(
         try sandbox.write(scheme, launchScheme())  // e.g. a branch switch
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: scheme)
         #expect(sandbox.locator(workspace).fingerprint() == before)
+    }
+
+    @Test func changesWithTheWorkspaceSettings() throws {
+        let sandbox = try Sandbox()
+        let workspace = try sandbox.repo("repo")
+        let before = sandbox.locator(workspace).fingerprint()
+
+        try sandbox.write("\(workspace)/xcshareddata/WorkspaceSettings.xcsettings", "<plist/>")
+        #expect(sandbox.locator(workspace).fingerprint() != before)
     }
 
     @Test func changesWithXcodesBuildLocationsOnly() throws {
