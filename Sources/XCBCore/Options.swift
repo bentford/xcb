@@ -37,6 +37,8 @@ struct Options {
     var quiet = false
     var fastAppLookup = true
     var skipPackageUpdates = false
+    /// Whether `skipPackageUpdates` came from `.xcbrc` rather than a flag, so the header can say so.
+    var skipPackageUpdatesFromConfig = false
     var categories: [String] = []
     var logLevel = "debug"
 
@@ -61,7 +63,10 @@ struct Options {
         deviceID = config["DEVICE_ID"] ?? deviceID
         deviceName = config["DEVICE_NAME"] ?? deviceName
         subsystem = config["LOG_SUBSYSTEM"] ?? subsystem
-        skipPackageUpdates = Self.flag(config["SKIP_PACKAGE_UPDATES"]) ?? skipPackageUpdates
+        if let skip = Self.flag(config["SKIP_PACKAGE_UPDATES"]) {
+            skipPackageUpdates = skip
+            skipPackageUpdatesFromConfig = skip
+        }
         fastAppLookup = Self.flag(config["FAST_APP_LOOKUP"]) ?? fastAppLookup
 
         // Backward compatibility: migrate IPHONE_NAME from old .xcbrc files
@@ -162,8 +167,8 @@ extension Options {
             case "--without-building": withoutBuilding = true
             case "--no-fast-app-lookup": fastAppLookup = false
             case "--fast-app-lookup": fastAppLookup = true
-            case "--skip-package-updates": skipPackageUpdates = true
-            case "--no-skip-package-updates": skipPackageUpdates = false
+            case "--skip-package-updates": (skipPackageUpdates, skipPackageUpdatesFromConfig) = (true, false)
+            case "--no-skip-package-updates": (skipPackageUpdates, skipPackageUpdatesFromConfig) = (false, false)
             case "--only": onlyTest = try value()
             case "-h", "--help": throw UsageError()
             default: throw UsageError("Unknown option: \(flag)")

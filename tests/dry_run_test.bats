@@ -93,6 +93,26 @@ assert_success() {
     [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
 }
 
+@test "the header says when package updates are skipped by a flag" {
+    run "$XCB" build "${STD_ARGS[@]}" --skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'Packages: not checking for updates (--skip-package-updates)'* ]]
+}
+
+@test "the header says when .xcbrc skips package updates and how to check" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" test "${STD_ARGS[@]}" --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'Packages: not checking for updates (SKIP_PACKAGE_UPDATES in .xcbrc; pass --no-skip-package-updates to check)'* ]]
+}
+
+@test "the header has no Packages line when updates are checked" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" clean "${STD_ARGS[@]}" --no-skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'Packages:'* ]]
+}
+
 @test "test --without-building --dry-run leaves out -skipPackageUpdates" {
     run "$XCB" test "${STD_ARGS[@]}" --skip-package-updates --without-building --dry-run
     assert_success

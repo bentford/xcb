@@ -12,6 +12,7 @@ extension App {
         echo("🔨 Building and testing scheme: \(options.scheme)")
         echo("   Workspace: \(options.workspace)")
         showDestination()
+        showPackageUpdates()
         echo("   Action: \(options.action.rawValue)")
         if !options.onlyTest.isEmpty {
             echo("   Only: \(options.onlyTest)")

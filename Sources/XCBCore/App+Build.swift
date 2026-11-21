@@ -6,6 +6,7 @@ extension App {
         echo("Cleaning: \(options.scheme)")
         echo("   Workspace: \(options.workspace)")
         showDestination()
+        showPackageUpdates()
         echo()
 
         if options.dryRun {
@@ -27,6 +28,7 @@ extension App {
         echo(andRun ? "🚀 Building and running: \(options.scheme)" : "Building: \(options.scheme)")
         echo("   Workspace: \(options.workspace)")
         showDestination()
+        showPackageUpdates()
         if options.clean {
             echo("   Clean: yes")
         }

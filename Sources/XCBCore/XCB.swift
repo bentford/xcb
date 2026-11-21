@@ -196,6 +196,16 @@ final class App {
         }
     }
 
+    /// Header line when xcodebuild won't check packages for updates, saying where that was
+    /// set, since a setting saved in .xcbrc is easy to forget.
+    func showPackageUpdates() {
+        guard options.skipPackageUpdates else { return }
+        let source = options.skipPackageUpdatesFromConfig
+            ? "SKIP_PACKAGE_UPDATES in .xcbrc; pass --no-skip-package-updates to check"
+            : "--skip-package-updates"
+        echo("   Packages: not checking for updates (\(source))")
+    }
+
     /// Print a dry-run command in yellow, one argument per line with `\` continuations.
     func showCommand(_ command: String, _ arguments: [String]) {
         let all = [command] + arguments.map { "    \($0)" }
