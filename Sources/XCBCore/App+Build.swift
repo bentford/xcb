@@ -6,6 +6,7 @@ extension App {
         echo("Cleaning: \(options.scheme)")
         echo("   Workspace: \(options.workspace)")
         showDestination()
+        showPackageUpdates()
         echo()
 
         if options.dryRun {
@@ -27,6 +28,7 @@ extension App {
         echo(andRun ? "🚀 Building and running: \(options.scheme)" : "Building: \(options.scheme)")
         echo("   Workspace: \(options.workspace)")
         showDestination()
+        showPackageUpdates()
         if options.clean {
             echo("   Clean: yes")
         }
@@ -123,7 +125,6 @@ extension App {
             return
         }
 
-        echo("\(blue)🔍 Reading build settings...\(reset)")
         guard let app = resolveBuiltApp() else {
             echo("\(red)Error: Could not determine app path. Have you built the app yet?\(reset)")
             echo("\(yellow)Tip: Make sure your scheme builds a runnable .app target\(reset)")
@@ -153,14 +154,37 @@ extension App {
         let bundleID: String?
     }
 
-    /// Locate the scheme's .app product via -showBuildSettings (one call, since each is slow).
+    /// Locate the scheme's .app product. Tries DerivedData first (instant, see `AppLocator`),
+    /// then an earlier slow lookup, then -showBuildSettings (one call, since each is slow).
+    /// Says which one it used, so the output matches what happened.
     /// The bundle id is read from the app's Info.plist rather than build settings, so
     /// multi-target schemes (e.g. app + embedded framework) don't pick up a sibling's id.
     func resolveBuiltApp() -> BuiltApp? {
+        let workspace = URL(fileURLWithPath: options.workspace).standardizedFileURL.path
+        let platform = options.destinationType == "device" ? "iphoneos" : "iphonesimulator"
+        let locator = AppLocator(workspace: workspace, scheme: options.scheme, platform: platform)
+        let cache = AppPathCache()
+        let key = AppPathCache.key(workspace: workspace, scheme: options.scheme, platform: platform)
+
+        if options.fastAppLookup {
+            if let path = locator.locate() {
+                echo("\(blue)🔍 Found \(basename(path)) in DerivedData\(reset)")
+                return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
+            }
+            if let path = cache.path(for: key, fingerprint: locator.fingerprint()) {
+                echo("\(blue)📌 Using the app path saved from an earlier build settings lookup\(reset)")
+                echo("\(blue)   Pass --no-fast-app-lookup to look it up again\(reset)")
+                return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
+            }
+        }
+
+        let reason = options.fastAppLookup ? "couldn't find the app in DerivedData" : "fast app lookup is off"
+        echo("\(blue)🔍 Reading build settings (\(reason))...\(reset)")
         let settings = Shell.capture(xcodebuild("-showBuildSettings")).output
         guard let product = Parsers.appProduct(inBuildSettings: settings),
               !product.name.isEmpty, !product.directory.isEmpty else { return nil }
         let path = "\(product.directory)/\(product.name)"
+        cache.store(path, for: key, fingerprint: locator.fingerprint())
         return BuiltApp(path: path, bundleID: bundleIdentifier(ofApp: path))
     }
 

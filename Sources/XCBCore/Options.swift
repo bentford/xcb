@@ -24,7 +24,8 @@ struct Options {
 
     var action: Action = .build
     var selectTarget: SelectTarget?
-    var skipBuild = false
+    var lastResults = false
+    var withoutBuilding = false
     var detailed = false
     var onlyTest = ""
     var force = false
@@ -34,8 +35,22 @@ struct Options {
     var clean = false
     var audible = false
     var quiet = false
+    var fastAppLookup = true
+    var skipPackageUpdates = false
+    /// Whether `skipPackageUpdates` came from `.xcbrc` rather than a flag, so the header can say so.
+    var skipPackageUpdatesFromConfig = false
     var categories: [String] = []
     var logLevel = "debug"
+
+    /// An on/off `.xcbrc` value: 1/true/yes/on or 0/false/no/off, any case. Nil for anything
+    /// else, so a typo keeps the default.
+    static func onOff(_ value: String?) -> Bool? {
+        switch value?.lowercased() {
+        case "1", "true", "yes", "on": true
+        case "0", "false", "no", "off": false
+        default: nil
+        }
+    }
 
     /// Apply saved defaults from `.xcbrc`.
     mutating func apply(config: [String: String]) {
@@ -48,6 +63,11 @@ struct Options {
         deviceID = config["DEVICE_ID"] ?? deviceID
         deviceName = config["DEVICE_NAME"] ?? deviceName
         subsystem = config["LOG_SUBSYSTEM"] ?? subsystem
+        if let skip = Self.onOff(config["SKIP_PACKAGE_UPDATES"]) {
+            skipPackageUpdates = skip
+            skipPackageUpdatesFromConfig = skip
+        }
+        fastAppLookup = Self.onOff(config["FAST_APP_LOOKUP"]) ?? fastAppLookup
 
         // Backward compatibility: migrate IPHONE_NAME from old .xcbrc files
         let legacyName = config["IPHONE_NAME"] ?? ""
@@ -143,7 +163,12 @@ extension Options {
             case "-q", "--quiet": quiet = true
             case "-a", "--audible": audible = true
             case "--dry-run": dryRun = true
-            case "--skip-build": skipBuild = true
+            case "--last-results", "--skip-build": lastResults = true  // --skip-build: old name
+            case "--without-building": withoutBuilding = true
+            case "--no-fast-app-lookup": fastAppLookup = false
+            case "--fast-app-lookup": fastAppLookup = true
+            case "--skip-package-updates": (skipPackageUpdates, skipPackageUpdatesFromConfig) = (true, false)
+            case "--no-skip-package-updates": (skipPackageUpdates, skipPackageUpdatesFromConfig) = (false, false)
             case "--only": onlyTest = try value()
             case "-h", "--help": throw UsageError()
             default: throw UsageError("Unknown option: \(flag)")
@@ -153,6 +178,12 @@ extension Options {
         if action == .select && selectTarget == nil {
             throw UsageError("Error: 'select' requires a sub-action (scheme or simulator)")
         }
+    }
+
+    /// `--skip-package-updates` state for the help text.
+    private var packageUpdatesState: String {
+        guard skipPackageUpdates else { return "off" }
+        return skipPackageUpdatesFromConfig ? "on, from .xcbrc" : "on"
     }
 
     func usage() -> String {
@@ -191,9 +222,17 @@ extension Options {
           --subsystem <name>     Log subsystem (\(subsystem.or("app's bundle ID")))
           -c, --category <name>  Log category, repeatable; '*' wildcards allowed (log only)
           --level <level>        Log level: default, info, or debug (log only, default: debug)
-          --skip-build           Skip build, use results from last run (test coverage)
+          --last-results         Show the last test coverage results without running tests (test coverage)
+          --without-building     Run tests from the last build for testing (test actions)
           --detailed             File-level coverage breakdown (test coverage)
           --clean                Clean before building (build actions only)
+          --fast-app-lookup      Find the app in DerivedData (run actions) (\(fastAppLookup ? "on" : "off"))
+          --no-fast-app-lookup   Read xcodebuild -showBuildSettings instead (slow)
+                                 Save with FAST_APP_LOOKUP="0" in .xcbrc
+          --skip-package-updates Don't check remote packages for updates (\(packageUpdatesState))
+                                 Save with SKIP_PACKAGE_UPDATES="1" in .xcbrc
+          --no-skip-package-updates
+                                 Check remote packages for updates even when .xcbrc skips them
           --filter <text>        Filter by text (select scheme, test coverage)
           --filter-scheme        Filter coverage targets by scheme name
           --dry-run              Show the command without running it
@@ -210,8 +249,9 @@ extension Options {
           xcb select simulator           Pick a default simulator
           xcb test -s MyScheme
           xcb test -s MyScheme --only MyTests/MyTestClass
+          xcb test -s MyScheme --only MyTests/MyTestClass --without-building
           xcb test coverage -s MyScheme --detailed
-          xcb test coverage --skip-build -s MyScheme
+          xcb test coverage --last-results -s MyScheme
           xcb build -s MyApp
           xcb build run -s MyApp
           xcb run -s MyApp

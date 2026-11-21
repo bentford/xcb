@@ -64,9 +64,9 @@ final class App {
         self.config = config
     }
 
-    /// `test coverage --skip-build` reports on an existing .xcresult instead of building.
+    /// `test coverage --last-results` reports on an existing .xcresult instead of running tests.
     var reusesResults: Bool {
-        options.action == .coverage && options.skipBuild
+        options.action == .coverage && options.lastResults
     }
 
     func execute() throws {
@@ -89,10 +89,22 @@ final class App {
             break
         }
 
-        // Warn if --only is used with non-test actions
-        if !options.onlyTest.isEmpty && (![.test, .coverage].contains(options.action) || reusesResults) {
-            echo("\(yellow)⚠ --only is ignored in \(options.action.rawValue) action\(reset)")
+        if options.lastResults && options.action != .coverage {
+            echo("\(yellow)⚠ --last-results is ignored in \(options.action.rawValue) action (it's for test coverage)\(reset)")
+            options.lastResults = false
+        }
+
+        // Warn about test-run flags when no tests will run
+        let ignoredBecause = reusesResults ? "with --last-results, which doesn't run tests"
+            : "in \(options.action.rawValue) action"
+        let runsTests = [.test, .coverage].contains(options.action) && !reusesResults
+        if !options.onlyTest.isEmpty && !runsTests {
+            echo("\(yellow)⚠ --only is ignored \(ignoredBecause)\(reset)")
             options.onlyTest = ""
+        }
+        if options.withoutBuilding && !runsTests {
+            echo("\(yellow)⚠ --without-building is ignored \(ignoredBecause)\(reset)")
+            options.withoutBuilding = false
         }
 
         var xcresultPath = ""
@@ -189,6 +201,16 @@ final class App {
         }
     }
 
+    /// Header line when xcodebuild won't check packages for updates, saying where that was
+    /// set, since a setting saved in .xcbrc is easy to forget.
+    func showPackageUpdates() {
+        guard options.skipPackageUpdates else { return }
+        let source = options.skipPackageUpdatesFromConfig
+            ? "SKIP_PACKAGE_UPDATES in .xcbrc; pass --no-skip-package-updates to check"
+            : "--skip-package-updates"
+        echo("   Packages: not checking for updates (\(source))")
+    }
+
     /// Print a dry-run command in yellow, one argument per line with `\` continuations.
     func showCommand(_ command: String, _ arguments: [String]) {
         let all = [command] + arguments.map { "    \($0)" }
@@ -204,6 +226,11 @@ final class App {
             args.append("-quiet")
         }
         args += ["-workspace", options.workspace, "-scheme", options.scheme, "-destination", destination]
+        // Opt-in: checking remote packages adds ~20 s per run on large workspaces, but
+        // skipping it can leave packages stale after Package.resolved changes.
+        if options.skipPackageUpdates {
+            args.append("-skipPackageUpdates")
+        }
         return args + extra
     }
 
@@ -213,7 +240,7 @@ final class App {
             "-workspace \"\(options.workspace)\"",
             "-scheme \"\(options.scheme)\"",
             "-destination \"\(destination)\"",
-        ]
+        ] + (options.skipPackageUpdates ? ["-skipPackageUpdates"] : [])
     }
 
     func buildLogPath(_ timestamp: String = timestamp()) -> String {

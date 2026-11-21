@@ -69,6 +69,58 @@ import Testing
         #expect(options.workspace == "Saved.xcworkspace")
     }
 
+    @Test(arguments: ["--last-results", "--skip-build"])
+    func parsesLastResultsAndItsOldName(flag: String) throws {
+        #expect(try parse("test coverage \(flag)").lastResults)
+    }
+
+    @Test func skipsPackageUpdatesOnlyWhenAskedTo() throws {
+        #expect(try parse("build").skipPackageUpdates == false)
+        #expect(try parse("build --skip-package-updates").skipPackageUpdates)
+    }
+
+    @Test(arguments: [("1", true), ("true", true), ("YES", true), ("0", false), ("false", false), ("", false)])
+    func loadsSkipPackageUpdatesFromConfig(value: String, expected: Bool) {
+        var options = Options()
+        options.apply(config: ["SKIP_PACKAGE_UPDATES": value])
+        #expect(options.skipPackageUpdates == expected)
+    }
+
+    @Test func flagOverridesSavedSkipPackageUpdates() throws {
+        var options = Options()
+        options.apply(config: ["SKIP_PACKAGE_UPDATES": "1"])
+        try options.parse(["build", "--no-skip-package-updates"])
+        #expect(options.skipPackageUpdates == false)
+    }
+
+    @Test(arguments: [("0", false), ("false", false), ("NO", false), ("off", false), ("1", true), ("", true), ("nope", true)])
+    func loadsFastAppLookupFromConfig(value: String, expected: Bool) {
+        var options = Options()
+        options.apply(config: ["FAST_APP_LOOKUP": value])
+        #expect(options.fastAppLookup == expected)
+    }
+
+    @Test func fastAppLookupFlagsOverrideConfig() throws {
+        var off = Options()
+        off.apply(config: ["FAST_APP_LOOKUP": "0"])
+        try off.parse(["run", "--fast-app-lookup"])
+        #expect(off.fastAppLookup)
+
+        var on = Options()
+        try on.parse(["run", "--no-fast-app-lookup"])
+        #expect(on.fastAppLookup == false)
+    }
+
+    @Test func helpShowsWherePackageUpdateSkippingComesFrom() throws {
+        var saved = Options()
+        saved.apply(config: ["SKIP_PACKAGE_UPDATES": "1", "FAST_APP_LOOKUP": "0"])
+        #expect(saved.usage().contains("Don't check remote packages for updates (on, from .xcbrc)"))
+        #expect(saved.usage().contains("Find the app in DerivedData (run actions) (off)"))
+
+        #expect(try parse("build --skip-package-updates").usage().contains("for updates (on)"))
+        #expect(Options().usage().contains("for updates (off)"))
+    }
+
     @Test(arguments: ["", "foobar", "build nope", "test nope", "select", "select nope", "run extra", "log extra", "log -c", "log --level", "log --level error", "build --bogus", "build -s", "build --help"])
     func rejectsInvalidCommandLines(args: String) {
         #expect(throws: UsageError.self) { try parse(args) }

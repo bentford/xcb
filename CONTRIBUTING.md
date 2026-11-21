@@ -50,6 +50,7 @@ Sources/XCBCore/             all the logic
   XCB.swift                  startup, shared validation and helpers
   Options.swift              argument parsing and usage text
   App+Build.swift            clean, build, build run, run
+  AppLocator.swift           finding the built .app in DerivedData (fast path)
   App+Test.swift             test, test coverage, purge
   App+Select.swift           select and setup (interactive pickers)
   App+Log.swift              log (simulator log streaming)

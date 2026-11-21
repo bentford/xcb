@@ -55,3 +55,90 @@ assert_success() {
         return 1
     fi
 }
+
+@test "test --without-building --dry-run runs from the .xctestrun without building" {
+    run "$XCB" test "${STD_ARGS[@]}" --only MyTests/MyClass --without-building --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *'xcodebuild test-without-building'* ]]
+    [[ "$out" == *'-xctestrun'* ]]
+    [[ "$out" == *'-only-testing:MyTests/MyClass'* ]]
+    [[ "$out" != *'-workspace'* ]]
+}
+
+@test "build --dry-run checks for package updates by default" {
+    run "$XCB" build "${STD_ARGS[@]}" --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
+}
+
+@test "--skip-package-updates adds -skipPackageUpdates" {
+    run "$XCB" build "${STD_ARGS[@]}" --skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'-skipPackageUpdates'* ]]
+}
+
+@test "SKIP_PACKAGE_UPDATES in .xcbrc adds -skipPackageUpdates" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" test "${STD_ARGS[@]}" --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'-skipPackageUpdates'* ]]
+}
+
+@test "--no-skip-package-updates overrides .xcbrc" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" build "${STD_ARGS[@]}" --no-skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
+}
+
+@test "the header says when package updates are skipped by a flag" {
+    run "$XCB" build "${STD_ARGS[@]}" --skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'Packages: not checking for updates (--skip-package-updates)'* ]]
+}
+
+@test "the header says when .xcbrc skips package updates and how to check" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" test "${STD_ARGS[@]}" --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'Packages: not checking for updates (SKIP_PACKAGE_UPDATES in .xcbrc; pass --no-skip-package-updates to check)'* ]]
+}
+
+@test "the header has no Packages line when updates are checked" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" clean "${STD_ARGS[@]}" --no-skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'Packages:'* ]]
+}
+
+@test "test --without-building --dry-run leaves out -skipPackageUpdates" {
+    run "$XCB" test "${STD_ARGS[@]}" --skip-package-updates --without-building --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
+}
+
+@test "--without-building is ignored outside test actions" {
+    run "$XCB" build "${STD_ARGS[@]}" --without-building --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'--without-building is ignored'* ]]
+}
+
+@test "--last-results outside test coverage says it's ignored" {
+    run "$XCB" test "${STD_ARGS[@]}" --last-results --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"--last-results is ignored in test action (it's for test coverage)"* ]]
+    [[ "$out" == *'xcodebuild test \'* ]]
+}
+
+@test "test --without-building --dry-run explains the build and the test run name" {
+    run "$XCB" test "${STD_ARGS[@]}" --without-building --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"Build: skipped, using the last build for testing (builds once if there isn't one)"* ]]
+    [[ "$out" == *'TestScheme[_<TestPlan>]_<platform><version>.xctestrun'* ]]
+}

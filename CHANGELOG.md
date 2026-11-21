@@ -2,6 +2,22 @@
 
 All notable changes to xcb are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- `build run`, `run` and `log` find the app in seconds instead of minutes on large workspaces. xcb used to run `xcodebuild -showBuildSettings` every time, which loads the whole workspace (over a minute on big ones). It now reads the scheme's Run action and the DerivedData folder Xcode created for this exact workspace path, so worktrees of the same repo never pick up each other's builds. When it can't be sure (custom DerivedData or build location in Xcode's or the workspace's settings, a scheme that doesn't launch an app, or no matching build) it falls back to build settings and remembers the result in `~/Library/Caches/xcb/app-paths.json`. A remembered path is only used while the scheme files and the location settings are unchanged, and xcb says when it uses one.
+- `--skip-build` is now `--last-results`, which says what it does: show the last test coverage results without running tests. `--skip-build` still works.
+- `--only` and `--without-building` with `--last-results` now say they're ignored because no tests run, instead of "ignored in coverage action". `--last-results` outside `test coverage` now says it's ignored too.
+- `build run`, `run` and `log` say how they found the app: in DerivedData, from a remembered path, or by reading build settings and why. `log` no longer always says it's reading build settings.
+- `clean`, `build`, `build run`, `test` and `test coverage` show a `Packages:` line when package update checks are skipped, saying whether `--skip-package-updates` or `.xcbrc` turned that on.
+
+### Added
+
+- `--no-fast-app-lookup` always reads build settings to find the app. Set `FAST_APP_LOOKUP="0"` in `.xcbrc` to make it the default, and pass `--fast-app-lookup` to turn it back on for one run.
+- `--skip-package-updates` passes `-skipPackageUpdates` to xcodebuild, so it doesn't check remote packages for updates (about 20 s per run on large workspaces). Set `SKIP_PACKAGE_UPDATES="1"` in `.xcbrc` to make it the default, and pass `--no-skip-package-updates` to check anyway.
+- `test` and `test coverage` accept `--without-building`, which runs `xcodebuild test-without-building` from the scheme's `.xctestrun` in DerivedData. On a large workspace, rerunning one test went from about 2 minutes to 20 seconds. The first run builds for testing to create the `.xctestrun`; coverage runs only use one built with coverage.
+
 ## [0.3.2]
 
 ### Fixed

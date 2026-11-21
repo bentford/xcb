@@ -73,7 +73,7 @@ extension App {
         }
         try validateDestination()
 
-        echo("\(blue)🔍 Reading bundle ID from build settings...\(reset)")
+        // resolveBuiltApp says where it finds the app (DerivedData, a saved path, or build settings)
         guard let bundleID = resolveBuiltApp()?.bundleID else {
             echo("\(red)Error: Could not determine the app's bundle ID. Have you built the app yet?\(reset)")
             echo("\(yellow)Tip: Run 'xcb build run' first, or pass --subsystem <name>\(reset)")

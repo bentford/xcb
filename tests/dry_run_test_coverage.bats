@@ -43,12 +43,28 @@ teardown() {
     [[ "$out" == *'-resultBundlePath "/tmp/TestScheme-Coverage-<timestamp>.xcresult"'* ]]
 }
 
-@test "test coverage --skip-build --dry-run shows xccov command" {
-    run "$XCB" test coverage --skip-build --dry-run
+@test "test coverage --last-results --dry-run shows xccov command" {
+    run "$XCB" test coverage --last-results --dry-run
     assert_success
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'xcrun xccov view --report --json <most-recent>.xcresult'* ]]
+}
+
+@test "--skip-build still works as the old name for --last-results" {
+    run "$XCB" test coverage --skip-build --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'xcrun xccov view --report --json <most-recent>.xcresult'* ]]
+}
+
+@test "--without-building and --only with --last-results explain why they're ignored" {
+    run "$XCB" test coverage --last-results --without-building --only MyTests/MyClass --dry-run
+    assert_success
+    local out
+    out=$(echo "$output" | strip_ansi)
+    [[ "$out" == *"--without-building is ignored with --last-results, which doesn't run tests"* ]]
+    [[ "$out" == *"--only is ignored with --last-results, which doesn't run tests"* ]]
+    [[ "$out" != *'ignored in coverage action'* ]]
 }
 
 assert_success() {
