@@ -27,7 +27,8 @@ struct Options {
     var lastResults = false
     var withoutBuilding = false
     var detailed = false
-    var onlyTest = ""
+    var onlyTesting: [String] = []  // xcodebuild -only-testing: identifiers
+    var skipTesting: [String] = []  // xcodebuild -skip-testing: identifiers
     var force = false
     var filter = ""
     var filterScheme = false
@@ -136,6 +137,12 @@ extension Options {
                 guard let value = args.popFirst() else { throw UsageError("Error: \(flag) requires a value") }
                 return value
             }
+            // xcodebuild's own form, e.g. --only-testing:MyTests/LoginTests
+            func attachedValue() throws -> String {
+                let (name, value) = flag.split(at: ":")
+                guard !value.isEmpty else { throw UsageError("Error: \(name) requires a value") }
+                return value
+            }
             switch flag {
             case "-s", "--scheme": scheme = try value()
             case "-w", "--workspace": workspace = try value()
@@ -169,7 +176,10 @@ extension Options {
             case "--fast-app-lookup": fastAppLookup = true
             case "--skip-package-updates": (skipPackageUpdates, skipPackageUpdatesFromConfig) = (true, false)
             case "--no-skip-package-updates": (skipPackageUpdates, skipPackageUpdatesFromConfig) = (false, false)
-            case "--only": onlyTest = try value()
+            case "--only-testing", "--only": onlyTesting.append(try value())  // --only: old name
+            case "--skip-testing": skipTesting.append(try value())
+            case _ where flag.hasPrefix("--only-testing:"): onlyTesting.append(try attachedValue())
+            case _ where flag.hasPrefix("--skip-testing:"): skipTesting.append(try attachedValue())
             case "-h", "--help": throw UsageError()
             default: throw UsageError("Unknown option: \(flag)")
             }
@@ -217,8 +227,10 @@ extension Options {
           -d, --destination <type> simulator or device [device is experimental] (\(destinationType.or("not set, use 'select destination'")))
           --simulator-id <uuid>  Simulator identifier (\(simulatorID.or("not set, use 'select simulator'")))
           --device-id <uuid>     Physical device identifier (experimental) (\(deviceID.or("not set, use 'select device'")))
-          --only <test>          Run specific test(s) (test actions only)
-                                 Format: TestTarget/TestClass[/testMethod]
+          --only-testing <test>  Run only these tests, repeatable (test actions only)
+          --skip-testing <test>  Run all tests except these, repeatable (test actions only)
+                                 Format: TestTarget[/TestClass[/testMethod]]
+                                 xcodebuild's --only-testing:<test> form also works
           --subsystem <name>     Log subsystem (\(subsystem.or("app's bundle ID")))
           -c, --category <name>  Log category, repeatable; '*' wildcards allowed (log only)
           --level <level>        Log level: default, info, or debug (log only, default: debug)
@@ -248,8 +260,9 @@ extension Options {
           xcb select scheme              Pick a default scheme
           xcb select simulator           Pick a default simulator
           xcb test -s MyScheme
-          xcb test -s MyScheme --only MyTests/MyTestClass
-          xcb test -s MyScheme --only MyTests/MyTestClass --without-building
+          xcb test -s MyScheme --only-testing MyTests/MyTestClass
+          xcb test -s MyScheme --only-testing MyTests/MyTestClass --without-building
+          xcb test -s MyScheme --skip-testing MyAppUITests
           xcb test coverage -s MyScheme --detailed
           xcb test coverage --last-results -s MyScheme
           xcb build -s MyApp
@@ -266,5 +279,11 @@ extension String {
     /// This string, or `fallback` if empty (like bash `${VAR:-fallback}`).
     func or(_ fallback: String) -> String {
         isEmpty ? fallback : self
+    }
+
+    /// The parts before and after the first `separator`; the second is empty if there isn't one.
+    func split(at separator: Character) -> (String, String) {
+        guard let index = firstIndex(of: separator) else { return (self, "") }
+        return (String(self[..<index]), String(self[self.index(after: index)...]))
     }
 }

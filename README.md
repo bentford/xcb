@@ -97,6 +97,18 @@ xcb clean
 xcb clean -s MyApp
 ```
 
+### Skip Package Update Checks
+
+```bash
+# Don't check remote packages for newer versions
+xcb build --skip-package-updates
+
+# Check this time, even when .xcbrc skips them
+xcb test --no-skip-package-updates
+```
+
+`--skip-package-updates` adds xcodebuild's `-skipPackageUpdates` to `clean`, `build`, `build run`, `test` and `test coverage`. On large workspaces, checking for updates takes about 20 s per run. To skip it by default for a project, add `SKIP_PACKAGE_UPDATES="1"` to `.xcbrc`. Then pass `--no-skip-package-updates` when you do want to check, e.g. after `Package.resolved` changes.
+
 ### Run Only (skip build)
 
 ```bash
@@ -113,18 +125,18 @@ xcb run -s MyApp
 xcb test -s MyApp
 
 # Run a specific test class
-xcb test -s MyApp --only MyTests/LoginTests
+xcb test -s MyApp --only-testing MyTests/LoginTests
 
-# Run a single test method
-xcb test -s MyApp --only MyTests/LoginTests/testValidCredentials
+# Run everything except the UI tests
+xcb test -s MyApp --skip-testing MyAppUITests
 
-# Rerun it without building (like Xcode's Test Without Building)
-xcb test -s MyApp --only MyTests/LoginTests/testValidCredentials --without-building
+# Rerun a test without building (like Xcode's Test Without Building)
+xcb test -s MyApp --only-testing MyTests/LoginTests/testValidCredentials --without-building
 ```
 
-`--without-building` runs `xcodebuild test-without-building` from the `.xctestrun` file in your workspace's DerivedData folder, so it skips loading the workspace and building. It runs whatever was built last, so changes since then aren't included. The first time, xcb builds for testing to create the `.xctestrun`; later `xcb test` runs keep its test bundles up to date. Coverage is set when tests are built, so `test coverage --without-building` only uses a `.xctestrun` built with coverage, and builds one the first time.
+`--only-testing` and `--skip-testing` work like xcodebuild's options of the same name and can be repeated. See [Choosing which tests run](docs/choosing-tests.md) for test names, Swift Testing tests (they need `()`), and combining the two. `--only-testing` was called `--only` before, and the old name still works.
 
-Pass `--skip-package-updates` to add xcodebuild's `-skipPackageUpdates`, which skips checking remote packages for newer versions (about 20 s per run on large workspaces). To make it the default for a project, add `SKIP_PACKAGE_UPDATES="1"` to `.xcbrc`, and pass `--no-skip-package-updates` for a run that should check, e.g. after `Package.resolved` changes.
+`--without-building` reruns tests from the last build without loading the workspace or compiling, so changes since then aren't included. See [Rerunning tests without building](docs/without-building.md) for how it finds that build, the first run, and coverage.
 
 ### Test with Coverage
 
@@ -136,7 +148,7 @@ xcb test coverage -s MyApp
 xcb test coverage -s MyApp --detailed
 
 # Coverage for a specific test class
-xcb test coverage -s MyApp --only MyTests/LoginTests
+xcb test coverage -s MyApp --only-testing MyTests/LoginTests
 ```
 
 ### Filter Coverage Targets
@@ -270,7 +282,8 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--subsystem` | Log subsystem (defaults to the app's bundle ID) |
 | `-c`, `--category` | Log category, repeatable; `*` wildcards allowed |
 | `--level` | Log level: `default`, `info`, or `debug` (default: `debug`) |
-| `--only` | Run specific test (`Target/Class[/method]`) |
+| `--only-testing` | Run only these tests (`Target[/Class[/method]]`), repeatable (formerly `--only`) |
+| `--skip-testing` | Run all tests except these (`Target[/Class[/method]]`), repeatable |
 | `--detailed` | Show file-level coverage breakdown |
 | `--last-results` | Show the last test coverage results without running tests (formerly `--skip-build`) |
 | `--without-building` | Run tests from the last build for testing |

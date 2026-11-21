@@ -33,13 +33,14 @@ teardown() {
     [[ "$out" == *'xcbeautify'* ]]
 }
 
-@test "test coverage --only --dry-run includes both coverage and only-testing" {
-    run "$XCB" test coverage "${STD_ARGS[@]}" --only MyTests/MyTestClass --dry-run
+@test "test coverage --only-testing --skip-testing --dry-run includes coverage and both test flags" {
+    run "$XCB" test coverage "${STD_ARGS[@]}" --only-testing MyTests/MyTestClass --skip-testing MyTests/MyTestClass/testSlow --dry-run
     assert_success
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *'-enableCodeCoverage YES'* ]]
     [[ "$out" == *'-only-testing:MyTests/MyTestClass'* ]]
+    [[ "$out" == *'-skip-testing:MyTests/MyTestClass/testSlow'* ]]
     [[ "$out" == *'-resultBundlePath "/tmp/TestScheme-Coverage-<timestamp>.xcresult"'* ]]
 }
 
@@ -57,13 +58,14 @@ teardown() {
     [[ "$(echo "$output" | strip_ansi)" == *'xcrun xccov view --report --json <most-recent>.xcresult'* ]]
 }
 
-@test "--without-building and --only with --last-results explain why they're ignored" {
-    run "$XCB" test coverage --last-results --without-building --only MyTests/MyClass --dry-run
+@test "--without-building, --only-testing and --skip-testing with --last-results explain why they're ignored" {
+    run "$XCB" test coverage --last-results --without-building --only-testing MyTests/MyClass --skip-testing MyAppUITests --dry-run
     assert_success
     local out
     out=$(echo "$output" | strip_ansi)
     [[ "$out" == *"--without-building is ignored with --last-results, which doesn't run tests"* ]]
-    [[ "$out" == *"--only is ignored with --last-results, which doesn't run tests"* ]]
+    [[ "$out" == *"--only-testing is ignored with --last-results, which doesn't run tests"* ]]
+    [[ "$out" == *"--skip-testing is ignored with --last-results, which doesn't run tests"* ]]
     [[ "$out" != *'ignored in coverage action'* ]]
 }
 

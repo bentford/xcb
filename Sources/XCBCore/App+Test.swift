@@ -14,14 +14,18 @@ extension App {
         showDestination()
         showPackageUpdates()
         echo("   Action: \(options.action.rawValue)")
-        if !options.onlyTest.isEmpty {
-            echo("   Only: \(options.onlyTest)")
+        if !options.onlyTesting.isEmpty {
+            echo("   Only: \(options.onlyTesting.joined(separator: ", "))")
+        }
+        if !options.skipTesting.isEmpty {
+            echo("   Skip: \(options.skipTesting.joined(separator: ", "))")
         }
         if options.withoutBuilding {
             echo("   Build: skipped, using the last build for testing (builds once if there isn't one)")
         }
 
-        let onlyTesting = options.onlyTest.isEmpty ? [] : ["-only-testing:\(options.onlyTest)"]
+        let selection = options.onlyTesting.map { "-only-testing:\($0)" }
+            + options.skipTesting.map { "-skip-testing:\($0)" }
 
         if options.dryRun {
             var preview = options.quiet ? ["-quiet"] : []
@@ -32,7 +36,7 @@ extension App {
                     "-resultBundlePath \"/tmp/\(options.scheme)-Coverage-<timestamp>.xcresult\"",
                 ]
             }
-            preview += onlyTesting
+            preview += selection
             preview.append("2>&1 | xcbeautify")
             if options.withoutBuilding {
                 // -xctestrun replaces -workspace/-scheme (so no package resolution either);
@@ -53,7 +57,7 @@ extension App {
         guard coverage else {
             let logPath = buildLogPath()
             echo()
-            let status = try runBeautified(try testArguments(coverage: false, onlyTesting), logPath: logPath)
+            let status = try runBeautified(try testArguments(coverage: false, selection), logPath: logPath)
             reportTestStatus(status, logPath: logPath)
             playSound(status)
             if status != 0 { throw ExitCode(status) }
@@ -71,7 +75,7 @@ extension App {
             echo("   xcresult: \(xcresultPath)")
             echo()
 
-            let args = try testArguments(coverage: true, ["-resultBundlePath", xcresultPath] + onlyTesting)
+            let args = try testArguments(coverage: true, ["-resultBundlePath", xcresultPath] + selection)
             status = try runBeautified(args, logPath: logPath)
             reportTestStatus(status, logPath: logPath)
         }

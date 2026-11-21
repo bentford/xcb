@@ -98,9 +98,13 @@ final class App {
         let ignoredBecause = reusesResults ? "with --last-results, which doesn't run tests"
             : "in \(options.action.rawValue) action"
         let runsTests = [.test, .coverage].contains(options.action) && !reusesResults
-        if !options.onlyTest.isEmpty && !runsTests {
-            echo("\(yellow)⚠ --only is ignored \(ignoredBecause)\(reset)")
-            options.onlyTest = ""
+        if !options.onlyTesting.isEmpty && !runsTests {
+            echo("\(yellow)⚠ --only-testing is ignored \(ignoredBecause)\(reset)")
+            options.onlyTesting = []
+        }
+        if !options.skipTesting.isEmpty && !runsTests {
+            echo("\(yellow)⚠ --skip-testing is ignored \(ignoredBecause)\(reset)")
+            options.skipTesting = []
         }
         if options.withoutBuilding && !runsTests {
             echo("\(yellow)⚠ --without-building is ignored \(ignoredBecause)\(reset)")
