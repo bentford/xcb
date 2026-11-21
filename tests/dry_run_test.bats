@@ -55,3 +55,29 @@ assert_success() {
         return 1
     fi
 }
+
+@test "build --dry-run checks for package updates by default" {
+    run "$XCB" build "${STD_ARGS[@]}" --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
+}
+
+@test "--skip-package-updates adds -skipPackageUpdates" {
+    run "$XCB" build "${STD_ARGS[@]}" --skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'-skipPackageUpdates'* ]]
+}
+
+@test "SKIP_PACKAGE_UPDATES in .xcbrc adds -skipPackageUpdates" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" test "${STD_ARGS[@]}" --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" == *'-skipPackageUpdates'* ]]
+}
+
+@test "--no-skip-package-updates overrides .xcbrc" {
+    echo 'SKIP_PACKAGE_UPDATES="1"' > .xcbrc
+    run "$XCB" build "${STD_ARGS[@]}" --no-skip-package-updates --dry-run
+    assert_success
+    [[ "$(echo "$output" | strip_ansi)" != *'-skipPackageUpdates'* ]]
+}

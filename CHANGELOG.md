@@ -2,6 +2,12 @@
 
 All notable changes to xcb are documented here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `--skip-package-updates` passes `-skipPackageUpdates` to xcodebuild, so it doesn't check remote packages for updates (about 20 s per run on large workspaces). Set `SKIP_PACKAGE_UPDATES="1"` in `.xcbrc` to make it the default, and pass `--no-skip-package-updates` to check anyway.
+
 ## [0.3.2]
 
 ### Fixed

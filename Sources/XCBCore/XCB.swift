@@ -204,6 +204,11 @@ final class App {
             args.append("-quiet")
         }
         args += ["-workspace", options.workspace, "-scheme", options.scheme, "-destination", destination]
+        // Opt-in: checking remote packages adds ~20 s per run on large workspaces, but
+        // skipping it can leave packages stale after Package.resolved changes.
+        if options.skipPackageUpdates {
+            args.append("-skipPackageUpdates")
+        }
         return args + extra
     }
 
@@ -213,7 +218,7 @@ final class App {
             "-workspace \"\(options.workspace)\"",
             "-scheme \"\(options.scheme)\"",
             "-destination \"\(destination)\"",
-        ]
+        ] + (options.skipPackageUpdates ? ["-skipPackageUpdates"] : [])
     }
 
     func buildLogPath(_ timestamp: String = timestamp()) -> String {

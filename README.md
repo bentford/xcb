@@ -117,6 +117,8 @@ xcb test -s MyApp --only MyTests/LoginTests
 xcb test -s MyApp --only MyTests/LoginTests/testValidCredentials
 ```
 
+Pass `--skip-package-updates` to add xcodebuild's `-skipPackageUpdates`, which skips checking remote packages for newer versions (about 20 s per run on large workspaces). To make it the default for a project, add `SKIP_PACKAGE_UPDATES="1"` to `.xcbrc`, and pass `--no-skip-package-updates` for a run that should check, e.g. after `Package.resolved` changes.
+
 ### Test with Coverage
 
 ```bash
@@ -221,6 +223,7 @@ SCHEME="MyApp"
 DESTINATION_TYPE="simulator"
 SIMULATOR_ID="<UUID>"
 LOG_SUBSYSTEM="com.example.app"   # optional; defaults to the app's bundle ID
+SKIP_PACKAGE_UPDATES="1"          # optional; same as --skip-package-updates on every run
 ```
 
 Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults for a single invocation.
@@ -261,6 +264,8 @@ Command-line flags (`-s`, `-w`, `--simulator-id`, etc.) override these defaults 
 | `--detailed` | Show file-level coverage breakdown |
 | `--skip-build` | Report coverage from last build |
 | `--clean` | Clean before building |
+| `--skip-package-updates` | Don't check remote packages for updates (`SKIP_PACKAGE_UPDATES="1"` in `.xcbrc` makes it the default) |
+| `--no-skip-package-updates` | Check remote packages even when `.xcbrc` skips them |
 | `--dry-run` | Show commands without executing |
 | `-a`, `--audible` | Play a sound when the command finishes |
 | `--force` | Skip confirmation prompts |

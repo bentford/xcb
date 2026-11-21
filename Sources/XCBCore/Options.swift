@@ -34,6 +34,7 @@ struct Options {
     var clean = false
     var audible = false
     var quiet = false
+    var skipPackageUpdates = false
     var categories: [String] = []
     var logLevel = "debug"
 
@@ -48,6 +49,9 @@ struct Options {
         deviceID = config["DEVICE_ID"] ?? deviceID
         deviceName = config["DEVICE_NAME"] ?? deviceName
         subsystem = config["LOG_SUBSYSTEM"] ?? subsystem
+        if let value = config["SKIP_PACKAGE_UPDATES"] {
+            skipPackageUpdates = ["1", "true", "yes"].contains(value.lowercased())
+        }
 
         // Backward compatibility: migrate IPHONE_NAME from old .xcbrc files
         let legacyName = config["IPHONE_NAME"] ?? ""
@@ -144,6 +148,8 @@ extension Options {
             case "-a", "--audible": audible = true
             case "--dry-run": dryRun = true
             case "--skip-build": skipBuild = true
+            case "--skip-package-updates": skipPackageUpdates = true
+            case "--no-skip-package-updates": skipPackageUpdates = false
             case "--only": onlyTest = try value()
             case "-h", "--help": throw UsageError()
             default: throw UsageError("Unknown option: \(flag)")
@@ -194,6 +200,8 @@ extension Options {
           --skip-build           Skip build, use results from last run (test coverage)
           --detailed             File-level coverage breakdown (test coverage)
           --clean                Clean before building (build actions only)
+          --skip-package-updates Don't check remote packages for updates (save with SKIP_PACKAGE_UPDATES in .xcbrc)
+          --no-skip-package-updates  Check remote packages even when .xcbrc skips them
           --filter <text>        Filter by text (select scheme, test coverage)
           --filter-scheme        Filter coverage targets by scheme name
           --dry-run              Show the command without running it
